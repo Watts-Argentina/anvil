@@ -20,7 +20,7 @@ build:
 run:
 	go run $(PKG)
 
-# build-<os>-<arch>, p. ej. build-linux-amd64 → dist/anvil-linux-amd64
+# build-<os>-<arch>, e.g. build-linux-amd64 → dist/anvil-linux-amd64
 $(TARGETS): build-%:
 	GOOS=$(word 1,$(subst -, ,$*)) GOARCH=$(word 2,$(subst -, ,$*)) \
 		go build $(GOFLAGS) -ldflags "$(LDFLAGS)$(if $(findstring windows,$*), -H=windowsgui)" \
@@ -29,7 +29,7 @@ $(TARGETS): build-%:
 checksums:
 	cd $(DIST) && sha256sum $(BINARY)-* > SHA256SUMS
 
-# release: compila todas las plataformas desde cero y genera SHA256SUMS
+# release: builds every platform from scratch and generates SHA256SUMS
 release: clean
 	$(MAKE) all
 	$(MAKE) checksums

@@ -7,7 +7,7 @@ import (
 	"github.com/Watts-Argentina/anvil/ui"
 )
 
-// version se inyecta al compilar con -ldflags "-X main.version=...".
+// version is injected at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
 func main() {

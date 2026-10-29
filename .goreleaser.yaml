@@ -51,5 +51,5 @@ changelog:
       - "^chore:"
 
 release:
-  # Tags como v0.5.0-beta o v1.0.0-rc1 se marcan como pre-release automáticamente
+  # Tags like v0.5.0-beta or v1.0.0-rc1 are marked as pre-releases automatically
   prerelease: auto
