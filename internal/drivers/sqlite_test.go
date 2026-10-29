@@ -13,7 +13,7 @@ import (
 
 func newSQLiteFile(t *testing.T, ddl string) models.DBConn {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "test db?.sqlite")
+	path := filepath.Join(t.TempDir(), "test db#.sqlite")
 	dsn, err := sqliteDSN(path, "rwc")
 	if err != nil {
 		t.Fatal(err)
