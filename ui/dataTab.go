@@ -34,6 +34,11 @@ type dataState struct {
 	Sel     selection
 	Date    dateEdit
 	NoPKOK  bool // the no-PK warning was accepted
+
+	// MongoDB: AsTable shows the grid instead of the Documents view, and
+	// Open holds the objects and arrays expanded in it (per page).
+	AsTable bool
+	Open    map[docKey]bool
 	Saving  bool
 	SaveErr string
 }
@@ -91,7 +96,7 @@ func loadData(w *gui.Window, tv *tableView, dir query.Dir) {
 			tv.Data.Err = errText(err)
 			return
 		}
-		tv.Data.Page = p
+		tv.Data.Page, tv.Data.Open = p, nil
 		// Pending changes refer to the rows of the old page.
 		discardChanges(tv)
 	})
@@ -219,12 +224,42 @@ func dataTab(w *gui.Window, a *App, tv *tableView) gui.View {
 		}),
 	)
 
+	c, _ := a.conn(tv.Key.ConnID)
+	docs := c.Engine == models.EngineMongo
+	if docs {
+		mode := "Documents"
+		if d.AsTable {
+			mode = "Table"
+		}
+		toolbar = gui.Column(gui.ContainerCfg{
+			Sizing:     gui.FillFit,
+			Padding:    gui.NoPadding,
+			Spacing:    gui.SpacingSmall,
+			SizeBorder: gui.NoBorder,
+			Content: []gui.View{toolbar, gui.SegmentedControl(gui.SegmentedControlCfg{
+				ID:      "data-view",
+				Items:   []string{"Documents", "Table"},
+				Value:   mode,
+				A11YCfg: gui.A11YCfg{A11YLabel: "Show documents or a table"},
+				OnSelect: func(v string, ctx gui.EventCtx) {
+					// The pending changes and the selection are shared by both views.
+					if commitEdit(ctx.Window, tv) {
+						tv.Data.AsTable = v == "Table"
+					}
+					ctx.Consume()
+				},
+			})},
+		})
+	}
+
 	var body gui.View
 	switch {
 	case d.Err != "":
 		body = components.ErrorText(d.Err)
 	case !d.fetched:
 		body = gui.Text(gui.TextCfg{Text: "Loading rows…", TextStyle: t.TextStyleSecondary})
+	case docs && !d.AsTable:
+		body = docList(a, tv)
 	default:
 		body = dataGrid(a, tv)
 	}

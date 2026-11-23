@@ -118,6 +118,12 @@ the UI branches with `Session.IsMongo()`.
   column's for empty cells and new documents); text that does not parse as that type is rejected before
   saving.
 - **Pages** in `_id` order with skip/limit; Count with `countDocuments`.
+- **Documents view** (the default in the Data tab, `ui/docView.go`): one card per document with a field per
+  line (name, value, type); fields the document does not have are not listed, and a new document lists every
+  known field, unset. Objects and arrays expand to show their fields, read-only (an open one shows its size,
+  `{2 fields}` / `[3 items]`). Top-level fields are edited on click like grid cells; the card number selects
+  the document (Ctrl/Shift to add or extend). A **Documents | Table** switch shows the grid instead; both
+  share the page, the pending changes, the selection and the edit bar. Expanded fields are per page.
 
 ---
 

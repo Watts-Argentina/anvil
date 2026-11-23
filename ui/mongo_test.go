@@ -13,6 +13,7 @@ import (
 	"github.com/Watts-Argentina/anvil/internal/query"
 	"github.com/Watts-Argentina/anvil/models"
 	"github.com/go-gui-org/go-gui/gui"
+	"github.com/go-gui-org/go-gui/gui/backend/soft"
 )
 
 // TestMongo needs ANVIL_TEST_MONGO (a connection string, see
@@ -54,7 +55,7 @@ func TestMongo(t *testing.T) {
 	}
 	run(`{"insert": "people", "documents": [
 		{"_id": 1, "name": "Ana", "age": 30, "born": {"$date": "1994-01-02T00:00:00Z"}},
-		{"_id": 2, "name": "Bruno", "tags": ["x", "y"]}]}`)
+		{"_id": 2, "name": "Bruno", "tags": ["x", "y"], "addr": {"city": "Rosario", "geo": {"lat": -32.9, "lng": -60.6}}}]}`)
 	if ed.Run.Affected() != 2 {
 		t.Fatalf("inserted %d", ed.Run.Affected())
 	}
@@ -95,9 +96,38 @@ func TestMongo(t *testing.T) {
 	for i, c := range tv.Data.Page.Columns {
 		cols[i] = c.Name
 	}
-	if !slices.Equal(cols, []string{"_id", "name", "age", "born", "tags"}) {
+	if !slices.Equal(cols, []string{"_id", "name", "age", "born", "tags", "addr"}) {
 		t.Fatalf("columns = %v", cols)
 	}
+
+	// The Documents view is the default: nested fields expand, read-only.
+	if tv.Data.AsTable {
+		t.Fatal("MongoDB opens in the Documents view")
+	}
+	toggleField(tv, docKey{Row: 1, Path: "addr"})
+	toggleField(tv, docKey{Row: 1, Path: "addr\x00geo"})
+	w.TestRender(nil)
+	soft.RenderToImage(w, 1)
+	w.TestRender(nil)
+	checkFindings(t, w)
+	screenshot(t, w, "mongo-docs")
+	// A click on a top-level field edits it, as in the grid.
+	clickCell(tv, cellRef{Row: 0, Column: "name"})(gui.EventCtx{Window: w})
+	w.FrameFn()
+	w.TestRender(nil)
+	if e := tv.Data.Edit; !e.Active || e.Text != "Ana" {
+		t.Fatalf("edit = %+v", e)
+	}
+	if err := w.TestType(editID, "!"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.TestKey(editID, gui.KeyEnter, 0); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := tv.Data.Pending.Value(0, "name"); !ok || !strings.Contains(v.Text, "!") {
+		t.Fatalf("name = %+v %v", v, ok)
+	}
+	discardChanges(tv)
 
 	// Edit, add and save through the review dialog.
 	p := &tv.Data.Pending
@@ -120,6 +150,7 @@ func TestMongo(t *testing.T) {
 	if !slices.Equal(got[:2], []string{"Ana|31", "Bruno|"}) || len(got) != 3 {
 		t.Fatalf("rows after save = %v", got)
 	}
+	tv.Data.AsTable = true
 	w.TestRender(nil)
 	checkFindings(t, w)
 	screenshot(t, w, "mongo-grid")
