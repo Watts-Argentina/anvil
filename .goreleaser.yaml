@@ -18,7 +18,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w -X main.version={{.Version}}
-    goos: [linux, windows, darwin]
+    goos: [linux, windows]
     goarch: [amd64, arm64]
     overrides:
       # No console on Windows (same as -H=windowsgui in the makefile)
@@ -28,6 +28,20 @@ builds:
       - goos: windows
         goarch: arm64
         ldflags: ["-s -w -X main.version={{.Version}} -H=windowsgui"]
+
+  # go-gui's Metal backend is Objective-C: darwin needs CGO and the macOS SDK,
+  # so the release workflow runs on a macOS runner. Binaries are unsigned.
+  - id: anvil-darwin
+    main: .
+    binary: anvil
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos: [darwin]
+    goarch: [amd64, arm64]
 
 archives:
   - formats: [tar.gz]

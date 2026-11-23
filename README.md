@@ -112,7 +112,6 @@ edit data safely: every change is previewed before saving and saved in a single 
 ### Coming up
 
 - A history panel with search.
-- macOS binaries in the releases (they need a build on a Mac).
 - Packages for AUR, Homebrew and winget.
 
 ## Install
@@ -122,6 +121,9 @@ edit data safely: every change is previewed before saving and saved in a single 
 Pre-built binaries for every tagged version are on the
 [Releases](https://github.com/Watts-Argentina/anvil/releases) page (`.tar.gz` for Linux and macOS, `.zip`
 for Windows), with a `SHA256SUMS` file.
+
+The macOS binaries are not signed, so Gatekeeper blocks them the first time. Run
+`xattr -d com.apple.quarantine anvil` after extracting, or allow it in System Settings → Privacy & Security.
 
 ### Build from source
 

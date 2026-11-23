@@ -532,8 +532,8 @@ The 6 findings from the initial review are resolved (milestone 1):
   (`internal/mongodb`). **Documents view** (`ui/docView.go`): one card per document with expandable
   objects and arrays (read-only), the default in the Data tab, with a switch to the grid.
 - **Milestone 5**: export, packaging and release. Done so far: `makefile` with per-platform builds and
-  GoReleaser on GitHub Actions for `v*` tags (§13), and export to CSV/JSON (§9). Pending: the macOS build
-  (§13) and the packages.
+  GoReleaser on GitHub Actions for `v*` tags (§13), unsigned macOS builds with CGO, and export to CSV/JSON
+  (§9). Pending: the packages.
 
 ### 12.2 Known dependency limitations
 
@@ -587,8 +587,8 @@ Findings from a project review at `6d19248`, to take into account in the next ve
    `BEGIN`/`START` open a transaction. In Oracle any DML opens one without `BEGIN` (and so does SQL Server with
    `SET IMPLICIT_TRANSACTIONS ON`). Check what `go-ora` does when that connection goes back to the pool with
    uncommitted DML: a later use could commit it.
-4. **macOS release binaries** (`.goreleaser.yaml`): darwin is built with `CGO_ENABLED=0`, which panics on
-   startup (§13). Leave darwin out of the release until there is a job on a macOS runner with CGO.
+4. ~~**macOS release binaries**: darwin was built with `CGO_ENABLED=0`.~~ Done: CGO build on a macOS runner
+   (§13).
 
 **To add**
 
@@ -624,8 +624,13 @@ Findings from a project review at `6d19248`, to take into account in the next ve
   use `-H=windowsgui` so no console opens. Tags with a suffix (`v0.5.0-beta`) are pre-releases.
 - Linux and Windows build without CGO thanks to the pure Go SQLite (§2.1). **macOS needs CGO**: go-gui's
   Metal backend is Objective-C. A `CGO_ENABLED=0` darwin build compiles but has no backend and panics on
-  startup, so macOS binaries must be built on a macOS runner with CGO (pending: the current GoReleaser
-  config and `makefile` build darwin with `CGO_ENABLED=0`).
+  startup, so the release workflow runs GoReleaser on a `macos-latest` runner: a separate `anvil-darwin`
+  build with `CGO_ENABLED=1`, while linux/windows still cross-compile with `CGO_ENABLED=0` (one job, because
+  `--split`/`--merge` need GoReleaser Pro). The `makefile` enables CGO for darwin targets, so
+  `make build-darwin-*` only works on a Mac.
+- **macOS binaries are unsigned** (no Apple Developer account, by decision): Gatekeeper blocks them when
+  downloaded from a browser. Users remove the quarantine with `xattr -d com.apple.quarantine anvil` or allow
+  it in System Settings → Privacy & Security.
 - The `makefile` builds locally: `make build`, `make build-<os>-<arch>`, `make release` (every platform
   plus `SHA256SUMS` in `dist/`).
 - **Packages**: AUR (Linux), Homebrew (macOS) and winget (Windows), published from the same release

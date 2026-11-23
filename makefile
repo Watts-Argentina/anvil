@@ -3,7 +3,8 @@ DIST   := dist
 PKG    := .
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-export CGO_ENABLED := 0
+# darwin needs CGO (go-gui's Metal backend is Objective-C), so build-darwin-* only works on a Mac
+export CGO_ENABLED := $(if $(filter Darwin,$(shell uname -s)),1,0)
 GOFLAGS := -trimpath
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
@@ -22,7 +23,7 @@ run:
 
 # build-<os>-<arch>, e.g. build-linux-amd64 → dist/anvil-linux-amd64
 $(TARGETS): build-%:
-	GOOS=$(word 1,$(subst -, ,$*)) GOARCH=$(word 2,$(subst -, ,$*)) \
+	CGO_ENABLED=$(if $(findstring darwin,$*),1,0) GOOS=$(word 1,$(subst -, ,$*)) GOARCH=$(word 2,$(subst -, ,$*)) \
 		go build $(GOFLAGS) -ldflags "$(LDFLAGS)$(if $(findstring windows,$*), -H=windowsgui)" \
 		-o $(DIST)/$(BINARY)-$*$(if $(findstring windows,$*),.exe) $(PKG)
 

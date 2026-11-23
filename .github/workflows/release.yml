@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   goreleaser:
-    runs-on: ubuntu-latest
+    # macOS runner: darwin needs CGO + the macOS SDK; linux/windows cross-compile without CGO
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:

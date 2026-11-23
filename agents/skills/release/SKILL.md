@@ -15,8 +15,11 @@ darwin/arm64; AUR, Homebrew and winget packages from the same pipeline. MIT lice
 - **macOS cannot**: go-gui's Metal backend is Objective-C (cgo, a go-gui decision) and needs the macOS SDK.
   Darwin binaries are built on a `macos-latest` runner with `CGO_ENABLED=1`. The SPEC says "no CGO on the
   3 platforms": that holds for SQLite, not for the UI on macOS.
-- Consequence: GoReleaser in two jobs (Linux runner for linux/windows, macOS runner for darwin) with
-  `goreleaser release --split` + `goreleaser continue --merge`, or two build configs and a publish job.
+- Consequence: the whole GoReleaser job runs on `macos-latest` with two build configs (`anvil` CGO-free for
+  linux/windows, `anvil-darwin` with CGO). Not `--split`/`--merge` nor the `prebuilt` builder: those are
+  GoReleaser Pro.
+- **No signing**: no Apple Developer account (owner's decision). macOS binaries ship unsigned; the README
+  documents `xattr -d com.apple.quarantine`. Do not add codesign/notarization steps.
 
 ## Packaging
 
@@ -28,7 +31,7 @@ darwin/arm64; AUR, Homebrew and winget packages from the same pipeline. MIT lice
   Use it as a GoReleaser post-hook or instead of `archives`. With a linked `.syso` it refuses to embed the
   icon: use one or the other.
 - `appinfo.toml` defines the App ID (go-gui also uses it for settings/secrets).
-- macOS signing/notarization and Windows signing: secrets in GitHub Actions, never in the repo.
+- Windows signing (if ever): secrets in GitHub Actions, never in the repo.
 
 ## GoReleaser (skeleton)
 
