@@ -155,6 +155,15 @@ func TestConnForm(t *testing.T) {
 		t.Fatalf("browse button not rendered: %v", ids)
 	}
 	screenshot(t, w, "conn-form-sqlite")
+
+	// MongoDB: host or connection string, verify-full shows the files.
+	a.Form.Conn.Engine, a.Form.Conn.SSLMode = models.EngineMongo, "verify-full"
+	w.TestRender(nil)
+	checkFindings(t, w)
+	if ids := w.ResolveID("cf-ssl-ca"); len(ids) != 1 {
+		t.Fatalf("CA field not rendered: %v", ids)
+	}
+	screenshot(t, w, "conn-form-mongo")
 }
 
 func TestSidebarClickSelectsTable(t *testing.T) {

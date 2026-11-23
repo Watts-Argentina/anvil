@@ -9,7 +9,9 @@ import (
 
 	"github.com/Watts-Argentina/anvil/internal/drivers"
 	"github.com/Watts-Argentina/anvil/internal/editing"
+	"github.com/Watts-Argentina/anvil/internal/mongodb"
 	"github.com/Watts-Argentina/anvil/internal/query"
+	"github.com/Watts-Argentina/anvil/internal/session"
 	"github.com/Watts-Argentina/anvil/ui/components"
 	"github.com/go-gui-org/go-gui/gui"
 )
@@ -294,15 +296,14 @@ func reviewSave(w *gui.Window, tv *tableView, then func(w *gui.Window)) {
 	if !ok {
 		return
 	}
-	target := editing.Target{Driver: s.Driver, Table: tv.Table, Columns: tv.Columns, Page: tv.Data.Page.Result}
-	stmts, err := editing.Build(target, tv.Data.Pending.Changes())
+	lines, apply, err := saveWrites(s, tv)
 	if err != nil {
 		showError(w, err)
 		return
 	}
-	lines := make([]string, len(stmts))
-	for i, st := range stmts {
-		lines[i] = st.Preview(s.Driver) + ";"
+	note := "These statements run in one transaction. If one fails, nothing is saved."
+	if s.IsMongo() && !s.Transactions {
+		note = "This server does not support transactions (it is not a replica set): the changes are saved one by one, and if one fails the ones before it stay saved."
 	}
 	tv.Data.SaveErr = ""
 
@@ -313,20 +314,19 @@ func reviewSave(w *gui.Window, tv *tableView, then func(w *gui.Window)) {
 		}
 		tv.Data.Saving, tv.Data.SaveErr = true, ""
 		async(ctx.Window, func(ctx context.Context) (struct{}, error) {
-			src, err := tableSource(ctx, a, tv)
-			if err != nil {
-				return struct{}{}, err
-			}
-			return struct{}{}, editing.Apply(ctx, src.DB, stmts)
+			return struct{}{}, apply(ctx)
 		}, func(w *gui.Window, _ struct{}, err error) {
 			tv.Data.Saving = false
 			if err != nil {
 				tv.Data.SaveErr = errText(err)
+				if s.IsMongo() && !s.Transactions {
+					loadData(w, tv, query.Reload) // some changes may be saved: show them
+				}
 				return
 			}
 			w.DialogDismiss()
 			discardChanges(tv)
-			appOf(w).Status = fmt.Sprintf("Saved %d changes to %s", len(stmts), tv.Table.Name)
+			appOf(w).Status = fmt.Sprintf("Saved %d changes to %s", len(lines), tv.Table.Name)
 			if then != nil {
 				// then leaves this page; it is reloaded when shown again.
 				tv.Data.fetched = false
@@ -340,14 +340,14 @@ func reviewSave(w *gui.Window, tv *tableView, then func(w *gui.Window)) {
 	w.Dialog(gui.DialogCfg{
 		ID:         "save-changes",
 		DialogType: gui.DialogCustom,
-		Title:      fmt.Sprintf("Save %d changes?", len(stmts)),
+		Title:      fmt.Sprintf("Save %d changes?", len(lines)),
 		Width:      640,
 		FocusID:    "save-confirm",
 		CustomView: func(w *gui.Window) gui.View {
 			t := gui.CurrentTheme()
 			content := []gui.View{
 				gui.Text(gui.TextCfg{
-					Text:      "These statements run in one transaction. If one fails, nothing is saved.",
+					Text:      note,
 					TextStyle: t.TextStyleSecondary,
 					Mode:      gui.TextModeWrap,
 				}),
@@ -369,6 +369,41 @@ func reviewSave(w *gui.Window, tv *tableView, then func(w *gui.Window)) {
 			return components.DialogBody(content...)
 		},
 	})
+}
+
+// saveWrites builds the pending changes of tv: the lines of the review
+// and the function that saves them (SQL DML or MongoDB writes by _id).
+func saveWrites(s *session.Session, tv *tableView) ([]string, func(context.Context) error, error) {
+	changes := tv.Data.Pending.Changes()
+	if s.IsMongo() {
+		writes, err := mongodb.Build(tv.Columns, tv.Data.Page.Result, changes)
+		if err != nil {
+			return nil, nil, err
+		}
+		lines := make([]string, len(writes))
+		for i, wr := range writes {
+			lines[i] = wr.Preview(tv.Table.Name)
+		}
+		coll := s.Collection(tv.Key.Database, tv.Table)
+		return lines, func(ctx context.Context) error { return mongodb.Apply(ctx, coll, writes, s.Transactions) }, nil
+	}
+
+	target := editing.Target{Driver: s.Driver, Table: tv.Table, Columns: tv.Columns, Page: tv.Data.Page.Result}
+	stmts, err := editing.Build(target, changes)
+	if err != nil {
+		return nil, nil, err
+	}
+	lines := make([]string, len(stmts))
+	for i, st := range stmts {
+		lines[i] = st.Preview(s.Driver) + ";"
+	}
+	return lines, func(ctx context.Context) error {
+		db, err := s.Pool(ctx, tv.Key.Database)
+		if err != nil {
+			return err
+		}
+		return editing.Apply(ctx, db, stmts)
+	}, nil
 }
 
 // pendingView returns the first view of the chain (the current one and the

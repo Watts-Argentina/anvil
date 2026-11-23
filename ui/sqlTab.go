@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Watts-Argentina/anvil/internal/drivers"
+	"github.com/Watts-Argentina/anvil/internal/mongodb"
 	"github.com/Watts-Argentina/anvil/internal/query"
 	"github.com/Watts-Argentina/anvil/models"
 	"github.com/Watts-Argentina/anvil/ui/components"
@@ -99,6 +100,8 @@ func lexerFor(a *App, key dbKey) string {
 		return "mysql"
 	case models.EngineMSSQL:
 		return "tsql"
+	case models.EngineMongo:
+		return "json" // commands are Extended JSON documents (SPEC §5.3)
 	}
 	return "sql"
 }
@@ -142,10 +145,14 @@ func sqlTab(w *gui.Window, a *App, ed *sqlEditor) gui.View {
 		},
 	})
 
+	hint := "Ctrl+Enter runs the selection or the statement under the cursor"
+	if c, _ := a.conn(ed.Key.ConnID); c.Engine == models.EngineMongo {
+		hint = `Ctrl+Enter runs one command: {"find": "collection", "filter": {}}`
+	}
 	toolbar := components.Toolbar("",
 		runBtn,
 		stopBtn,
-		gui.Text(gui.TextCfg{Text: "Ctrl+Enter runs the selection or the statement under the cursor", TextStyle: t.TextStyleCaption}),
+		gui.Text(gui.TextCfg{Text: hint, TextStyle: t.TextStyleCaption}),
 		components.Spacer(),
 		components.Icon("database", 12),
 		gui.Text(gui.TextCfg{Text: dbLabel(a, ed.Key), TextStyle: t.TextStyleCaption}),
@@ -248,8 +255,8 @@ func runAction[S any](cfg edit.EditorCfg, st *S, buf *buffer.Buffer, w *gui.Wind
 // statementAt returns the statement under the cursor (SPEC §5.2).
 func statementAt(a *App, key dbKey, text string, offset int) string {
 	s, ok := a.Sessions.Get(key.ConnID)
-	if !ok {
-		return text
+	if !ok || s.IsMongo() {
+		return text // one MongoDB command per editor
 	}
 	span, ok := drivers.StatementAt(s.Driver.SplitStatements(text), offset)
 	if !ok {
@@ -266,45 +273,64 @@ func runSQL(w *gui.Window, ed *sqlEditor, sql string) {
 		return
 	}
 
+	if s.IsMongo() {
+		cmd, warnings, err := mongodb.Parse(sql, s.Conn.ReadOnly)
+		if err != nil {
+			ed.Err, ed.Run, ed.Page = errText(err), nil, nil
+			return
+		}
+		confirmRun(w, warnings, func(w *gui.Window) {
+			execute(w, ed, sql, func(ctx context.Context) (query.RunResult, error) {
+				return mongodb.Run(ctx, s.MongoDB(ed.Key.Database), cmd, a.Prefs.DefaultPageSize)
+			})
+		})
+		return
+	}
+
 	plan, err := query.NewPlan(s.Driver, sql, s.Conn.ReadOnly)
 	if err != nil {
 		ed.Err, ed.Run, ed.Page = errText(err), nil, nil
 		return
 	}
-	if len(plan.Warnings) == 0 {
-		executePlan(w, ed, plan, sql)
+	key, size := ed.Key, a.Prefs.DefaultPageSize
+	confirmRun(w, plan.Warnings, func(w *gui.Window) {
+		execute(w, ed, sql, func(ctx context.Context) (query.RunResult, error) {
+			db, err := s.Pool(ctx, key.Database)
+			if err != nil {
+				return query.RunResult{}, err
+			}
+			return query.Run(ctx, db, plan, size)
+		})
+	})
+}
+
+// confirmRun runs run, after asking if there are warnings (SPEC §8).
+func confirmRun(w *gui.Window, warnings []string, run func(w *gui.Window)) {
+	if len(warnings) == 0 {
+		run(w)
 		return
 	}
 	w.Dialog(gui.DialogCfg{
 		DialogType: gui.DialogConfirm,
 		Title:      "Run anyway?",
-		Body:       "• " + strings.Join(plan.Warnings, "\n• "),
+		Body:       "• " + strings.Join(warnings, "\n• "),
 		MaxWidth:   gui.SomeF(560),
-		OnOkYes: func(w *gui.Window) {
-			executePlan(w, ed, plan, sql)
-		},
+		OnOkYes:    run,
 	})
 }
 
-func executePlan(w *gui.Window, ed *sqlEditor, plan query.Plan, sql string) {
+// execute runs the editor's statements with run, cancellable, and keeps
+// the result and the history.
+func execute(w *gui.Window, ed *sqlEditor, sql string, run func(context.Context) (query.RunResult, error)) {
 	a := appOf(w)
 	key := ed.Key
-	s, ok := a.Sessions.Get(key.ConnID)
-	if !ok {
-		return
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ed.Running, ed.cancel, ed.Err = true, cancel, ""
 	a.Status = "Running…"
-	size := a.Prefs.DefaultPageSize
 
 	go func() {
-		var res query.RunResult
-		db, err := s.Pool(ctx, key.Database)
-		if err == nil {
-			res, err = query.Run(ctx, db, plan, size)
-		}
+		res, err := run(ctx)
 		w.QueueCommand(func(w *gui.Window) {
 			cancel()
 			ed.Running, ed.cancel = false, nil
@@ -370,6 +396,9 @@ func loadResultPage(w *gui.Window, ed *sqlEditor, index int) {
 	page := *ed.Page
 
 	async(w, func(ctx context.Context) (query.RowsPage, error) {
+		if s.IsMongo() {
+			return mongodb.RunPage(ctx, s.MongoDB(key.Database), page, index)
+		}
 		db, err := s.Pool(ctx, key.Database)
 		if err != nil {
 			return page, err
@@ -471,6 +500,9 @@ func exportResult(w *gui.Window, ed *sqlEditor) {
 	var stream func(context.Context, query.RowSink) error
 	if page.Repeatable {
 		stream = func(ctx context.Context, sink query.RowSink) error {
+			if s.IsMongo() {
+				return mongodb.StreamRun(ctx, s.MongoDB(key.Database), page, sink)
+			}
 			db, err := s.Pool(ctx, key.Database)
 			if err != nil {
 				return err

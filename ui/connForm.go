@@ -7,6 +7,7 @@ import (
 
 	"github.com/Watts-Argentina/anvil/internal/connections"
 	"github.com/Watts-Argentina/anvil/internal/drivers"
+	"github.com/Watts-Argentina/anvil/internal/mongodb"
 	"github.com/Watts-Argentina/anvil/models"
 	"github.com/Watts-Argentina/anvil/pkg/appErrors"
 	"github.com/Watts-Argentina/anvil/ui/components"
@@ -32,6 +33,7 @@ var engines = []struct{ id, label string }{
 	{models.EngineMySQL, "MySQL / MariaDB"},
 	{models.EngineMSSQL, "SQL Server"},
 	{models.EngineOracle, "Oracle"},
+	{models.EngineMongo, "MongoDB"},
 }
 
 var sslModes = map[string][]string{
@@ -41,6 +43,9 @@ var sslModes = map[string][]string{
 	// verifying the certificate.
 	models.EngineMSSQL:  {"false", "true", "trust", "strict", "disable"},
 	models.EngineOracle: {"disable", "require", "verify"},
+	// MongoDB: "require" encrypts without verifying the certificate; with
+	// "disable" the connection string's tls option decides.
+	models.EngineMongo: {"disable", "require", "verify-full"},
 }
 
 func openConnForm(w *gui.Window, c models.DBConn) {
@@ -155,7 +160,7 @@ func connFormView(w *gui.Window) gui.View {
 				Spacing:    gui.SpacingMedium,
 				SizeBorder: gui.NoBorder,
 				Content: []gui.View{
-					components.FormField("Host", formInput("cf-host", c.Host, "localhost", func(f *connForm, s string) { f.Conn.Host = s })),
+					components.FormField("Host", formInput("cf-host", c.Host, hostPlaceholder(c.Engine), func(f *connForm, s string) { f.Conn.Host = s })),
 					gui.Column(gui.ContainerCfg{
 						Width: 110, Sizing: gui.FixedFit, Padding: gui.NoPadding, SizeBorder: gui.NoBorder,
 						Content: []gui.View{components.FormField("Port", gui.Input(gui.InputCfg{
@@ -282,8 +287,18 @@ func defaultUser(engine string) string {
 		return "sa"
 	case models.EngineOracle:
 		return "system"
+	case models.EngineMongo:
+		return "Optional"
 	}
 	return "postgres"
+}
+
+// hostPlaceholder hints that MongoDB also takes a connection string.
+func hostPlaceholder(engine string) string {
+	if engine == models.EngineMongo {
+		return "localhost or mongodb+srv://…"
+	}
+	return "localhost"
 }
 
 // databaseField is the database of server engines; in Oracle, the service
@@ -425,6 +440,9 @@ func testConnection(w *gui.Window) {
 	a.Form.Busy, a.Form.Error, a.Form.Info = true, "", "Testing connection…"
 
 	async(w, func(ctx context.Context) (struct{}, error) {
+		if f.Conn.Engine == models.EngineMongo {
+			return struct{}{}, mongodb.Test(ctx, f.Conn, formPassword(ctx, a, f))
+		}
 		return struct{}{}, drivers.Test(ctx, f.Conn, formPassword(ctx, a, f))
 	}, func(w *gui.Window, _ struct{}, err error) {
 		f := &appOf(w).Form

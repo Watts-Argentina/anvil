@@ -12,8 +12,8 @@ import (
 )
 
 // typeName is the DBType of a BSON type. The names fit what the grid
-// expects: "datetime" is edited with the calendar and "binary" is
-// read-only.
+// expects: "datetimetz" is edited with the calendar and keeps the offset
+// (a BSON date is an instant, not a wall time), "binary" is read-only.
 func typeName(t bson.Type) string {
 	switch t {
 	case bson.TypeString:
@@ -31,7 +31,7 @@ func typeName(t bson.Type) string {
 	case bson.TypeObjectID:
 		return "objectId"
 	case bson.TypeDateTime:
-		return "datetime"
+		return "datetimetz"
 	case bson.TypeEmbeddedDocument:
 		return "object"
 	case bson.TypeArray:
@@ -137,8 +137,8 @@ func parse(typ string, v editing.Value) (any, error) {
 			return bad(err)
 		}
 		return id, nil
-	case "datetime":
-		tm, ok := editing.ParseTemporal("datetime", s)
+	case "datetimetz":
+		tm, ok := editing.ParseTemporal("datetimetz", s)
 		if !ok {
 			return bad(nil)
 		}

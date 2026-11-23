@@ -2,6 +2,7 @@ package ui
 
 import (
 	"github.com/Watts-Argentina/anvil/internal/completion"
+	"github.com/Watts-Argentina/anvil/models"
 	"github.com/Watts-Argentina/anvil/ui/components"
 	"github.com/go-gui-org/go-edit/edit"
 	"github.com/go-gui-org/go-edit/edit/buffer"
@@ -112,8 +113,12 @@ func complete[S any](force bool, cfg edit.EditorCfg, st *S, buf *buffer.Buffer, 
 			conn, _ := a.conn(ed.Key.ConnID)
 			tables := a.Tables[ed.Key]
 			loadColumns(w, ed.Key, completion.Mentioned(text, tables))
+			var keywords []string // MongoDB commands are JSON: collections and fields only
+			if conn.Engine != models.EngineMongo {
+				keywords = completion.Keywords(conn.Engine)
+			}
 			c.Items = completion.Complete(word, completion.Source{
-				Keywords: completion.Keywords(conn.Engine),
+				Keywords: keywords,
 				Tables:   tables,
 				Columns:  a.Columns[ed.Key],
 			})

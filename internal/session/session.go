@@ -5,11 +5,14 @@ package session
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sync"
 
 	"github.com/Watts-Argentina/anvil/internal/drivers"
+	"github.com/Watts-Argentina/anvil/internal/mongodb"
 	"github.com/Watts-Argentina/anvil/models"
 	"github.com/Watts-Argentina/anvil/pkg/appErrors"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 // Session is an open connection. Conn is a copy of the configuration at
@@ -18,10 +21,18 @@ import (
 // If the connection has no database configured (drivers.AllDatabases), DB is
 // the maintenance database pool and each server database is opened in its
 // own pool when requested with Pool.
+//
+// A MongoDB session has Mongo instead of Driver and DB (SPEC §2.3): one
+// client serves every database.
 type Session struct {
 	Conn   models.DBConn
 	Driver drivers.Driver
 	DB     *sql.DB
+
+	Mongo *mongo.Client
+	// Transactions reports that the MongoDB server supports them (replica
+	// set or mongos): saving grid changes is all or nothing.
+	Transactions bool
 
 	// The password stays in memory only while the session is open
 	// (SPEC §3.2), to open the pools of the other databases.
@@ -36,9 +47,31 @@ func (s *Session) AllDatabases() bool {
 	return drivers.AllDatabases(s.Conn)
 }
 
+// IsMongo reports whether the session is a MongoDB one.
+func (s *Session) IsMongo() bool { return s.Mongo != nil }
+
+// MongoDB returns a MongoDB database ("" = the configured one).
+func (s *Session) MongoDB(database string) *mongo.Database {
+	if database == "" {
+		database = s.Conn.DB
+	}
+	return s.Mongo.Database(database)
+}
+
+// Collection returns a collection of a MongoDB database.
+func (s *Session) Collection(database string, t drivers.Table) *mongo.Collection {
+	return s.MongoDB(database).Collection(t.Name)
+}
+
 // Databases lists the server databases.
 func (s *Session) Databases(ctx context.Context) ([]string, error) {
-	dbs, err := s.Driver.ListDatabases(ctx, s.DB)
+	var dbs []string
+	var err error
+	if s.IsMongo() {
+		dbs, err = mongodb.ListDatabases(ctx, s.Mongo)
+	} else {
+		dbs, err = s.Driver.ListDatabases(ctx, s.DB)
+	}
 	if err != nil {
 		return nil, appErrors.Error(
 			"Failed to list databases.",
@@ -52,6 +85,9 @@ func (s *Session) Databases(ctx context.Context) ([]string, error) {
 // Pool returns the pool for database. With "" (or if the connection has a
 // database configured) it returns the main pool.
 func (s *Session) Pool(ctx context.Context, database string) (*sql.DB, error) {
+	if s.IsMongo() {
+		return nil, appErrors.Error("Not an SQL connection.", "MongoDB connections have no SQL pool.", errNoPool)
+	}
 	if database == "" || !s.AllDatabases() || database == s.Driver.MaintenanceDB() {
 		return s.DB, nil
 	}
@@ -85,10 +121,19 @@ func (s *Session) Pool(ctx context.Context, database string) (*sql.DB, error) {
 	return db, nil
 }
 
+var errNoPool = errors.New("mongodb session has no sql pool")
+
 var errSessionClosed = appErrors.Error("Connection closed.", "The connection was closed.", sql.ErrConnDone)
 
 // Tables lists the tables and views of database ("" = the main database).
 func (s *Session) Tables(ctx context.Context, database string) ([]drivers.Table, error) {
+	if s.IsMongo() {
+		tables, err := mongodb.ListCollections(ctx, s.MongoDB(database))
+		if err != nil {
+			return nil, appErrors.Error("Failed to list collections.", "The collections of the database could not be read: "+err.Error(), err)
+		}
+		return tables, nil
+	}
 	db, err := s.Pool(ctx, database)
 	if err != nil {
 		return nil, err
@@ -106,6 +151,13 @@ func (s *Session) Tables(ctx context.Context, database string) ([]drivers.Table,
 
 // Columns returns the columns of a table or view of database.
 func (s *Session) Columns(ctx context.Context, database string, t drivers.Table) ([]drivers.Column, error) {
+	if s.IsMongo() {
+		cols, err := mongodb.Columns(ctx, s.Collection(database, t))
+		if err != nil {
+			return nil, appErrors.Error("Failed to read fields.", "The fields of "+t.Name+" could not be read: "+err.Error(), err)
+		}
+		return cols, nil
+	}
 	db, err := s.Pool(ctx, database)
 	if err != nil {
 		return nil, err
@@ -123,6 +175,9 @@ func (s *Session) Columns(ctx context.Context, database string, t drivers.Table)
 
 // ForeignKeys returns the foreign keys of a table of database.
 func (s *Session) ForeignKeys(ctx context.Context, database string, t drivers.Table) ([]drivers.ForeignKey, error) {
+	if s.IsMongo() {
+		return nil, nil
+	}
 	db, err := s.Pool(ctx, database)
 	if err != nil {
 		return nil, err
@@ -148,6 +203,9 @@ func (s *Session) Close() error {
 	for _, db := range pools {
 		db.Close()
 	}
+	if s.IsMongo() {
+		return s.Mongo.Disconnect(context.Background())
+	}
 	return s.DB.Close()
 }
 
@@ -168,6 +226,14 @@ func (m *Manager) Connect(ctx context.Context, conn models.DBConn, password stri
 	if s, ok := m.Get(conn.ID); ok {
 		return s, nil
 	}
+	if conn.Engine == models.EngineMongo {
+		client, err := mongodb.Connect(ctx, conn, password)
+		if err != nil {
+			return nil, err
+		}
+		s := &Session{Conn: conn, Mongo: client, Transactions: mongodb.Transactions(ctx, client)}
+		return m.add(s, func() { client.Disconnect(context.Background()) }), nil
+	}
 
 	d, err := drivers.For(conn.Engine)
 	if err != nil {
@@ -178,16 +244,21 @@ func (m *Manager) Connect(ctx context.Context, conn models.DBConn, password stri
 		return nil, err
 	}
 
+	s := &Session{Conn: conn, Driver: d, DB: db, password: password, pools: map[string]*sql.DB{}}
+	return m.add(s, func() { db.Close() }), nil
+}
+
+// add registers s, unless another goroutine connected in the meantime:
+// then it closes s with drop and returns the existing session.
+func (m *Manager) add(s *Session, drop func()) *Session {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if s, ok := m.sessions[conn.ID]; ok {
-		// Another goroutine connected in the meantime.
-		db.Close()
-		return s, nil
+	if existing, ok := m.sessions[s.Conn.ID]; ok {
+		drop()
+		return existing
 	}
-	s := &Session{Conn: conn, Driver: d, DB: db, password: password, pools: map[string]*sql.DB{}}
-	m.sessions[conn.ID] = s
-	return s, nil
+	m.sessions[s.Conn.ID] = s
+	return s
 }
 
 func (m *Manager) Get(connID uint) (*Session, bool) {

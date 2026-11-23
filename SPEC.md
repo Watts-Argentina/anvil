@@ -10,7 +10,7 @@ connect to a database, explore its tables, run SQL and edit data safely.
 |-------------|--------------------------------------------|
 | Users       | General FOSS audience (technical users)    |
 | Platforms   | Linux (X11/Wayland), Windows, macOS        |
-| Engines     | SQLite, PostgreSQL, MySQL / MariaDB, SQL Server, Oracle 12c+ |
+| Engines     | SQLite, PostgreSQL, MySQL / MariaDB, SQL Server, Oracle 12c+, MongoDB (§2.3) |
 
 ### 1.1 v1 scope
 
@@ -51,6 +51,7 @@ internal/schema      DDL to create tables and databases
 internal/history     query history
 internal/completion  SQL editor autocompletion: keywords per engine, word at cursor, candidates
 internal/export      CSV / JSON writers and atomic file write
+internal/mongodb     MongoDB backend: collections, document pages, editing by _id, commands (§2.3)
 models/              GORM models for the local configuration
 pkg/appErrors        errors with Title/Description to show in the UI
 assets/              own embedded SVG icons
@@ -93,6 +94,31 @@ assets/              own embedded SVG icons
 - MySQL connections use `ClientFoundRows` so that `RowsAffected` counts the rows found, not only the changed
   ones (§7.3).
 
+### 2.3 MongoDB
+
+MongoDB is not SQL, so it does not implement `Driver`: `internal/mongodb` uses the official driver
+(`go.mongodb.org/mongo-driver/v2`, pure Go) and returns the same types as the SQL packages (`drivers.Table`,
+`drivers.Column`, `query.Page`, `query.RunResult`, `editing.Change`), so the sidebar, tabs, grid, editing and
+export are shared. A MongoDB `Session` has `Mongo` (one client for every database) instead of `Driver`/`DB`;
+the UI branches with `Session.IsMongo()`.
+
+- **Connection**: `Host` is a host name or a full connection string (`mongodb://…`, `mongodb+srv://…` for
+  Atlas; its options, such as `authSource`, are kept). `User` is optional: without it no password is asked.
+  SSL modes: `disable` (the connection string decides), `require` (TLS without verifying), `verify-full` (with
+  `SSLCA`; `SSLCert`/`SSLKey` for client certificates, the key may be in the same PEM).
+- **Databases and collections** are listed like databases and tables (views are read-only). Without `DB`,
+  every database the user can read is shown. There are no New table / New database forms (MongoDB creates
+  them on the first insert) and no foreign keys.
+- **Fields**: a collection has no schema, so its columns are the top-level fields of a sample of 100
+  documents: `_id` first (the primary key), then by appearance; the type is the most common BSON type
+  (`string`, `int`, `long`, `double`, `decimal`, `bool`, `objectId`, `datetimetz`, `object`, `array`,
+  `binary`…). A page also shows the fields of its documents that the sample missed. A missing field is NULL.
+- **Values**: scalars as text, dates in UTC (edited with the calendar, keeping the offset), binary read-only,
+  documents and arrays as relaxed Extended JSON. An edited cell is saved with the type the value had (or the
+  column's for empty cells and new documents); text that does not parse as that type is rejected before
+  saving.
+- **Pages** in `_id` order with skip/limit; Count with `countDocuments`.
+
 ---
 
 ## 3. Connection management
@@ -104,13 +130,13 @@ assets/              own embedded SVG icons
 | `gorm.Model` |          | ID, timestamps, soft delete                                 |
 | `Name`       | string   | Visible alias, required                                     |
 | `Color`      | string   | Hex (`#RRGGBB`) for the indicator in the sidebar            |
-| `Engine`     | string   | `sqlite` \| `postgres` \| `mysql` \| `mssql` \| `oracle`     |
-| `Host`       | string   | Not applicable to SQLite                                    |
-| `Port`       | int      | Defaults to 5432 / 3306 / 1433 / 1521                       |
-| `User`       | string   | Not applicable to SQLite                                    |
+| `Engine`     | string   | `sqlite` \| `postgres` \| `mysql` \| `mssql` \| `oracle` \| `mongodb` |
+| `Host`       | string   | Not applicable to SQLite; in MongoDB it may be a connection string (§2.3) |
+| `Port`       | int      | Defaults to 5432 / 3306 / 1433 / 1521 / 27017               |
+| `User`       | string   | Not applicable to SQLite; optional in MongoDB               |
 | `DB`         | string   | Database name; for SQLite it is the file path, for Oracle the service name (required). Empty in PG/MySQL/SQL Server = all databases (§3.4) |
 | `ReadOnly`   | bool     | Blocks writes (§7)                                          |
-| `SSLMode`    | string   | PG: `disable/require/verify-ca/verify-full`; MySQL: `false/true/skip-verify/custom`; SQL Server: `false/true/trust/strict/disable`; Oracle: `disable/require/verify` |
+| `SSLMode`    | string   | PG: `disable/require/verify-ca/verify-full`; MySQL: `false/true/skip-verify/custom`; SQL Server: `false/true/trust/strict/disable`; Oracle: `disable/require/verify`; MongoDB: `disable/require/verify-full` |
 | `SSLCA`      | string   | Path to the CA                                              |
 | `SSLCert`    | string   | Path to the client certificate                              |
 | `SSLKey`     | string   | Path to the client key                                      |
@@ -270,6 +296,19 @@ assets/              own embedded SVG icons
   the affected rows and the duration are shown.
 - Errors are shown with `appErrors` (title and description, plus the engine message).
 
+### 5.3 MongoDB commands
+
+- In a MongoDB connection the editor runs one **database command** written as relaxed Extended JSON, whose
+  first key is the command: `{"find": "users", "filter": {"age": {"$gt": 30}}, "sort": {"_id": 1}}`. The
+  selection, or else the whole editor, is the command. Highlighting uses the `json` lexer; autocompletion
+  offers collections and fields, no keywords.
+- `find`, `aggregate`, `listCollections` and `listIndexes` give paginated documents (pages are read again
+  from the cursor). `insert`, `update` and `delete` give the affected documents (`n`; write errors fail the
+  command). Any other command shows its reply as one row.
+- Read-only connections accept only read commands (`find`, `aggregate` without `$out`/`$merge`, `count`,
+  `distinct`, `list*`, `*Stats`, `explain`…). An `update` or `delete` with an empty filter asks for
+  confirmation (§8). The mongosh syntax (`db.users.find(…)`) is not supported.
+
 ---
 
 ## 6. Grid and pagination
@@ -330,6 +369,11 @@ horizontal scroll (scrollbar or Shift+wheel).
   editor results are **never** editable.
 - If the connection is marked `ReadOnly`, the grid is read-only.
 - Views are read-only. BLOB columns are read-only.
+- MongoDB (§2.3): documents are identified by `_id` and saved with `insertOne`, `updateOne` (`$set` of the
+  edited fields) and `deleteOne`, shown as mongosh calls in the review. Updates and deletes must find exactly
+  one document. On a replica set or `mongos` they run in one transaction; a standalone server has none, so
+  the review says that changes are saved one by one and, on a failure, the error says how many were saved
+  and the page is reloaded. Fields the sample did not find are not editable in the grid (use a command).
 
 ### 7.2 Pending changes
 
@@ -415,6 +459,8 @@ horizontal scroll (scrollbar or Shift+wheel).
   PK order; the full result of a query runs it again without pagination (not offered for a non-repeatable
   result, such as `INSERT … RETURNING`). Rows are written as they are read (`query.StreamTable`,
   `query.StreamRows`, `export.Writer`).
+- MongoDB: a full collection export has every top-level field of the collection (collected first with an
+  aggregation), in `_id` order; a full command result runs the cursor command twice (fields, then documents).
 - The file is written to a temporary file in the same directory and renamed at the end: a failed or cancelled
   export (Cancel in the dialog) leaves no half-written file and does not touch an existing one.
 
@@ -474,6 +520,9 @@ The 6 findings from the initial review are resolved (milestone 1):
 - **Overflow fixes**: dialogs and the sidebar keep long values inside them (§4), checked by `TestNoOverflow`.
 - **README** with screenshots of a demo database, regenerated by `TestReadmeScreenshots`
   (`ANVIL_README_SHOTS=docs/screenshots`).
+- **MongoDB** (§2.3, §5.3): connection (host or connection string), databases and collections, document
+  grid with editing by `_id` (transactional on replica sets), commands in the editor and export
+  (`internal/mongodb`).
 - **Milestone 5**: export, packaging and release. Done so far: `makefile` with per-platform builds and
   GoReleaser on GitHub Actions for `v*` tags (§13), and export to CSV/JSON (§9). Pending: the macOS build
   (§13) and the packages.

@@ -21,6 +21,8 @@ func engineLabel(engine string) string {
 		return "SQL Server"
 	case models.EngineOracle:
 		return "Oracle"
+	case models.EngineMongo:
+		return "MongoDB"
 	}
 	return engine
 }
@@ -91,15 +93,19 @@ func connectionItem(a *App, c models.DBConn) gui.View {
 		return components.TreeColumn(items)
 	}
 
-	items = append(items, components.TreeIndented(1, components.IconButton("plus", "New database", gui.ButtonCfg{
-		ID:       gui.ScopeID(scope, "new-db"),
-		Variant:  gui.ButtonGhost,
-		Disabled: c.ReadOnly,
-		OnClick: func(ctx gui.EventCtx) {
-			openNewDatabase(ctx.Window, id)
-			ctx.Consume()
-		},
-	})))
+	// shortcut: no create forms for MongoDB (its databases and collections
+	// appear on the first insert); add them if users ask.
+	if c.Engine != models.EngineMongo {
+		items = append(items, components.TreeIndented(1, components.IconButton("plus", "New database", gui.ButtonCfg{
+			ID:       gui.ScopeID(scope, "new-db"),
+			Variant:  gui.ButtonGhost,
+			Disabled: c.ReadOnly,
+			OnClick: func(ctx gui.EventCtx) {
+				openNewDatabase(ctx.Window, id)
+				ctx.Consume()
+			},
+		})))
+	}
 	dbs := a.Databases[id]
 	if len(dbs) == 0 {
 		items = append(items, components.TreeHint("No databases.", 1))
@@ -178,6 +184,33 @@ func databaseItem(a *App, c models.DBConn, name, scope string) []gui.View {
 
 // tableList is the filter and flat table list of a database.
 func tableList(a *App, c models.DBConn, key dbKey, scope string, level int) []gui.View {
+	noun := "tables"
+	if c.Engine == models.EngineMongo {
+		noun = "collections"
+	}
+	header := []gui.View{
+		gui.Input(gui.InputCfg{
+			ID:          gui.ScopeID(scope, "filter"),
+			Sizing:      gui.FillFit,
+			Text:        a.Filter[key],
+			Placeholder: "Filter " + noun + "…",
+			OnTextChanged: func(text string, ctx gui.EventCtx) {
+				appOf(ctx.Window).Filter[key] = text
+			},
+		}),
+	}
+	if c.Engine != models.EngineMongo {
+		header = append(header, components.IconButton("plus", "", gui.ButtonCfg{
+			ID:       gui.ScopeID(scope, "new-table"),
+			Variant:  gui.ButtonGhost,
+			Disabled: c.ReadOnly,
+			A11YCfg:  gui.A11YCfg{A11YLabel: "New table"},
+			OnClick: func(ctx gui.EventCtx) {
+				openNewTable(ctx.Window, key)
+				ctx.Consume()
+			},
+		}))
+	}
 	items := []gui.View{
 		components.TreeIndented(level, gui.Row(gui.ContainerCfg{
 			Sizing:     gui.FillFit,
@@ -185,27 +218,7 @@ func tableList(a *App, c models.DBConn, key dbKey, scope string, level int) []gu
 			Spacing:    gui.SpacingTight,
 			SizeBorder: gui.NoBorder,
 			VAlign:     gui.VAlignMiddle,
-			Content: []gui.View{
-				gui.Input(gui.InputCfg{
-					ID:          gui.ScopeID(scope, "filter"),
-					Sizing:      gui.FillFit,
-					Text:        a.Filter[key],
-					Placeholder: "Filter tables…",
-					OnTextChanged: func(text string, ctx gui.EventCtx) {
-						appOf(ctx.Window).Filter[key] = text
-					},
-				}),
-				components.IconButton("plus", "", gui.ButtonCfg{
-					ID:       gui.ScopeID(scope, "new-table"),
-					Variant:  gui.ButtonGhost,
-					Disabled: c.ReadOnly,
-					A11YCfg:  gui.A11YCfg{A11YLabel: "New table"},
-					OnClick: func(ctx gui.EventCtx) {
-						openNewTable(ctx.Window, key)
-						ctx.Consume()
-					},
-				}),
-			},
+			Content:    header,
 		})),
 	}
 
@@ -219,9 +232,9 @@ func tableList(a *App, c models.DBConn, key dbKey, scope string, level int) []gu
 		shown++
 	}
 	if shown == 0 {
-		msg := "No tables."
+		msg := "No " + noun + "."
 		if filter != "" {
-			msg = "No tables match the filter."
+			msg = "No " + noun + " match the filter."
 		}
 		items = append(items, components.TreeHint(msg, level))
 	}

@@ -60,8 +60,13 @@ func TestParse(t *testing.T) {
 	if v, err := parse("int", editing.Text("x")); err == nil {
 		t.Errorf("int x = %v, want an error", v)
 	}
-	if v, _ := parse("datetime", editing.Text("2024-01-02 03:04:05")); v.(bson.DateTime).Time().UTC() != time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC) {
+	if v, _ := parse("datetimetz", editing.Text("2024-01-02 03:04:05")); v.(bson.DateTime).Time().UTC() != time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC) {
 		t.Errorf("datetime = %v", v)
+	}
+	// Set Now and the calendar write local time with its offset.
+	local := time.Date(2024, 1, 2, 3, 4, 5, 0, time.FixedZone("x", -3*3600))
+	if v, _ := parse("datetimetz", editing.Text(editing.FormatTemporal("datetimetz", local))); !v.(bson.DateTime).Time().Equal(local) {
+		t.Errorf("local time = %v, want %v", v.(bson.DateTime).Time().UTC(), local.UTC())
 	}
 	// Unknown type: JSON if it parses, text otherwise.
 	if v, _ := parse("", editing.Text("12")); v.(bson.RawValue).Type != bson.TypeInt32 {

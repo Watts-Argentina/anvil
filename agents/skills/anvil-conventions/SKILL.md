@@ -24,6 +24,7 @@ internal/editing        pending changes and DML (grid-editing skill)
 internal/schema         DDL: CREATE TABLE / CREATE DATABASE builders and Exec (SPEC §3.5)
 internal/history        query history
 internal/export         CSV / JSON
+internal/mongodb        MongoDB backend (SPEC §2.3): same types as drivers/query/editing; UI branches on Session.IsMongo()
 models/                 GORM models for the local config
 pkg/appErrors           errors for the UI
 assets/                 embedded SVG icons
@@ -89,6 +90,14 @@ The 6 items from the initial review are resolved. See SPEC §12.1 for progress b
   docker run -d --rm --name anvil-pg -e POSTGRES_PASSWORD=anvil -p 127.0.0.1:55432:5432 postgres:18-alpine
   docker run -d --rm --name anvil-my -e MYSQL_ROOT_PASSWORD=anvil -e MYSQL_DATABASE=anvil -p 127.0.0.1:53306:3306 mysql:8.4
   ANVIL_TEST_PG="127.0.0.1 55432 postgres anvil postgres" ANVIL_TEST_MYSQL="127.0.0.1 53306 root anvil anvil" go test -count=1 ./...
+  ```
+  MongoDB: a single-node replica set (transactions) and a standalone server (none). `directConnection=true`
+  is required: the replica set member advertises its in-container address.
+  ```sh
+  docker run -d --rm --name anvil-mongo -p 127.0.0.1:57017:27017 mongo:8 --replSet rs0 --bind_ip_all
+  docker exec anvil-mongo mongosh --quiet --eval 'rs.initiate()'
+  docker run -d --rm --name anvil-mongo-sa -p 127.0.0.1:57018:27017 mongo:8
+  ANVIL_TEST_MONGO="mongodb://127.0.0.1:57017/?directConnection=true" ANVIL_TEST_MONGO_STANDALONE="mongodb://127.0.0.1:57018/" go test -count=1 ./...
   ```
   Packages run in parallel against the **same** server databases: each test uses its own tables and must
   not assume it sees only those (filter listings).

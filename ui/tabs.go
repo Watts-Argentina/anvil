@@ -203,6 +203,9 @@ func (a *App) doubleClick(id string) bool {
 // the database's) or the SQL editor's database.
 func tabTitle(a *App, t *tab) string {
 	if t.SQL != nil {
+		if c, _ := a.conn(t.Key.ConnID); c.Engine == models.EngineMongo {
+			return "Query · " + dbLabel(a, t.Key)
+		}
 		return "SQL · " + dbLabel(a, t.Key)
 	}
 	tv := t.Table

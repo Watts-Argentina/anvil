@@ -26,7 +26,8 @@ func connect(w *gui.Window, id uint) {
 		return
 	}
 
-	if c.Engine == models.EngineSQLite {
+	// A MongoDB server without authentication has no user and no password.
+	if c.Engine == models.EngineSQLite || c.Engine == models.EngineMongo && c.User == "" {
 		openSession(w, c, "", false)
 		return
 	}

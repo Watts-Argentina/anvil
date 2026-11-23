@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/Watts-Argentina/anvil/internal/editing"
+	"github.com/Watts-Argentina/anvil/internal/mongodb"
 	"github.com/Watts-Argentina/anvil/internal/query"
+	"github.com/Watts-Argentina/anvil/internal/session"
 	"github.com/Watts-Argentina/anvil/models"
 	"github.com/Watts-Argentina/anvil/ui/components"
 	"github.com/go-gui-org/go-gui/gui"
@@ -57,6 +59,15 @@ func tableSource(ctx context.Context, a *App, tv *tableView) (query.TableSource,
 	return query.TableSource{Driver: s.Driver, DB: db, Table: tv.Table, Columns: tv.Columns, Filter: tv.Filter}, nil
 }
 
+// mongoSession returns the session of connection id if it is an open
+// MongoDB one, or nil.
+func mongoSession(a *App, id uint) *session.Session {
+	if s, ok := a.Sessions.Get(id); ok && s.IsMongo() {
+		return s
+	}
+	return nil
+}
+
 func loadData(w *gui.Window, tv *tableView, dir query.Dir) {
 	a := appOf(w)
 	if tv.Data.Loading {
@@ -66,6 +77,9 @@ func loadData(w *gui.Window, tv *tableView, dir query.Dir) {
 	cur, size := tv.Data.Page, tv.Data.Size
 
 	async(w, func(ctx context.Context) (query.Page, error) {
+		if s := mongoSession(a, tv.Key.ConnID); s != nil {
+			return mongodb.LoadPage(ctx, s.Collection(tv.Key.Database, tv.Table), tv.Columns, cur, dir, size)
+		}
 		src, err := tableSource(ctx, a, tv)
 		if err != nil {
 			return query.Page{}, err
@@ -87,6 +101,9 @@ func countRows(w *gui.Window, tv *tableView) {
 	a := appOf(w)
 	tv.Data.Counting = true
 	async(w, func(ctx context.Context) (int64, error) {
+		if s := mongoSession(a, tv.Key.ConnID); s != nil {
+			return mongodb.Count(ctx, s.Collection(tv.Key.Database, tv.Table))
+		}
 		src, err := tableSource(ctx, a, tv)
 		if err != nil {
 			return 0, err
@@ -190,6 +207,9 @@ func dataTab(w *gui.Window, a *App, tv *tableView) gui.View {
 		countView,
 		exportButton("data-export", d.Loading || !d.fetched || d.Err != "", func(w *gui.Window) {
 			openExport(w, tv.Table.Name, tv.Data.Page.Result, func(ctx context.Context, sink query.RowSink) error {
+				if s := mongoSession(a, tv.Key.ConnID); s != nil {
+					return mongodb.Stream(ctx, s.Collection(tv.Key.Database, tv.Table), tv.Columns, sink)
+				}
 				src, err := tableSource(ctx, a, tv)
 				if err != nil {
 					return err
