@@ -173,3 +173,45 @@ func cellType(orig query.Value, colType string) string {
 	}
 	return colType
 }
+
+// Field is a field of a document, or an item of an array (Key "[0]"), for
+// the Documents view.
+type Field struct {
+	Key   string
+	Value query.Value
+	Type  string
+}
+
+// Fields returns the fields of a document cell or the items of an array
+// cell, and nil for any other value.
+func Fields(v query.Value) []Field {
+	rv, ok := v.Raw.(bson.RawValue)
+	if !ok || rv.Type != bson.TypeEmbeddedDocument && rv.Type != bson.TypeArray {
+		return nil
+	}
+	elems, err := bson.Raw(rv.Value).Elements()
+	if err != nil {
+		return nil
+	}
+	out := make([]Field, len(elems))
+	for i, e := range elems {
+		key := e.Key()
+		if rv.Type == bson.TypeArray {
+			key = "[" + key + "]"
+		}
+		out[i] = Field{Key: key, Value: convert(e.Value()), Type: typeName(e.Value().Type)}
+	}
+	return out
+}
+
+// Missing reports that a cell is a field its document does not have (a
+// stored null is not missing).
+func Missing(v query.Value) bool { return v.Null && v.Raw == nil }
+
+// TypeOf is the type name of a cell ("" if the field is missing).
+func TypeOf(v query.Value) string {
+	if rv, ok := v.Raw.(bson.RawValue); ok {
+		return typeName(rv.Type)
+	}
+	return ""
+}

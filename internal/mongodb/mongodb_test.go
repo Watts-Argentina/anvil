@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Watts-Argentina/anvil/internal/editing"
+	"github.com/Watts-Argentina/anvil/internal/query"
 	"github.com/Watts-Argentina/anvil/models"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
@@ -98,6 +99,26 @@ func TestFields(t *testing.T) {
 	}
 	if c := fields(nil); len(c) != 1 || c[0].DBType != "objectId" {
 		t.Errorf("empty collection = %v", c)
+	}
+}
+
+func TestNestedFields(t *testing.T) {
+	doc := rawDoc(t, `{"addr": {"city": "Rosario", "zip": {"$numberInt": "2000"}}, "tags": ["a", {"b": 1}], "n": null}`)
+	var got []string
+	for _, f := range Fields(convert(doc.Lookup("addr"))) {
+		got = append(got, f.Key+"="+f.Value.Text+":"+f.Type)
+	}
+	for _, f := range Fields(convert(doc.Lookup("tags"))) {
+		got = append(got, f.Key+"="+f.Value.Text+":"+f.Type)
+	}
+	if s := strings.Join(got, " "); s != `city=Rosario:string zip=2000:int [0]=a:string [1]={"b":1}:object` {
+		t.Errorf("fields = %s", s)
+	}
+	if Fields(convert(doc.Lookup("n"))) != nil || Missing(convert(doc.Lookup("n"))) {
+		t.Error("a stored null has no fields and is not missing")
+	}
+	if !Missing(row([]query.Column{{Name: "x"}}, doc)[0]) {
+		t.Error("an absent field must be missing")
 	}
 }
 

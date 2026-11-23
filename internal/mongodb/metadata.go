@@ -90,7 +90,8 @@ func fields(docs []bson.Raw) []drivers.Column {
 			if typ == "" {
 				typ = "objectId"
 			}
-			cols[i] = drivers.Column{Name: name, DBType: typ, PK: true, PKOrdinal: 1}
+			// AutoInc: left empty in a new document, the server generates it.
+			cols[i] = drivers.Column{Name: name, DBType: typ, PK: true, PKOrdinal: 1, AutoInc: true}
 			continue
 		}
 		cols[i] = drivers.Column{Name: name, DBType: typ, Nullable: true}

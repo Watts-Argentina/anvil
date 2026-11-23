@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Watts-Argentina/anvil/internal/editing"
+	"github.com/Watts-Argentina/anvil/internal/query"
 	"github.com/Watts-Argentina/anvil/ui/components"
 	"github.com/go-gui-org/go-gui/gui"
 )
@@ -143,7 +144,6 @@ func pageRow(tv *tableView, st *dataStyles, r int, edit bool) gui.TableRowCfg {
 	res := d.Page.Result
 	k := rowKey{Row: r}
 	deleted := edit && d.Pending.Deleted(r)
-	rowSel := edit && d.Sel.has(k)
 	cells := make([]gui.TableCellCfg, 0, len(res.Columns)+1)
 	var numStyle *gui.TextStyle
 	if deleted {
@@ -158,20 +158,7 @@ func pageRow(tv *tableView, st *dataStyles, r int, edit bool) gui.TableRowCfg {
 			continue
 		}
 		orig := res.Rows[r][c]
-		cell := st.valueCell(orig)
-		changed := false
-		if pv, ok := d.Pending.Value(r, col.Name); edit && ok {
-			cell, changed = st.editedCell(pv), true
-		}
-		if deleted {
-			cell.TextStyle = &st.deleted
-		}
-		if rowSel {
-			cell = inSelection(cell)
-			if d.Sel.Column == col.Name {
-				cell = active(cell)
-			}
-		}
+		cell, changed := pageCell(tv, st, ref, orig, edit)
 		// The link follows the original value, so it is hidden while the
 		// cell has another one.
 		if fk, ok := tv.fkOf(col.Name); ok && !orig.Null && !changed {
@@ -192,7 +179,6 @@ func newRow(tv *tableView, st *dataStyles, id int) gui.TableRowCfg {
 	d := &tv.Data
 	res := d.Page.Result
 	k := rowKey{Row: id, New: true}
-	rowSel := d.Sel.has(k)
 	cells := make([]gui.TableCellCfg, 0, len(res.Columns)+1)
 	cells = append(cells, numberCell(tv, st, k, "+", &st.added, true))
 
@@ -202,25 +188,54 @@ func newRow(tv *tableView, st *dataStyles, id int) gui.TableRowCfg {
 			cells = append(cells, editCell(tv, ref))
 			continue
 		}
-		var cell gui.TableCellCfg
-		if v, ok := d.Pending.NewValue(id, col.Name); ok {
-			cell = st.editedCell(v)
-			if !v.Null {
-				cell.TextStyle = &st.added
-			}
-		} else {
-			cell = gui.TableCellCfg{Value: "DEFAULT", TextStyle: &st.placeholder}
-		}
-		if rowSel {
-			cell = inSelection(cell)
-			if d.Sel.Column == col.Name {
-				cell = active(cell)
-			}
-		}
+		cell := newCell(tv, st, ref, "DEFAULT")
 		cell.OnClick = clickCell(tv, ref)
 		cells = append(cells, cell)
 	}
 	return gui.TableRowCfg{Cells: cells}
+}
+
+// pageCell is a cell of a page row with its pending value, struck through
+// if the row is deleted and tinted if it is selected. changed reports that
+// it shows a pending value.
+func pageCell(tv *tableView, st *dataStyles, ref cellRef, orig query.Value, edit bool) (gui.TableCellCfg, bool) {
+	d := &tv.Data
+	cell := st.valueCell(orig)
+	changed := false
+	if pv, ok := d.Pending.Value(ref.Row, ref.Column); edit && ok {
+		cell, changed = st.editedCell(pv), true
+	}
+	if edit && d.Pending.Deleted(ref.Row) {
+		cell.TextStyle = &st.deleted
+	}
+	return selected(tv, ref, cell, edit), changed
+}
+
+// newCell is a cell of a new row: its value, or unset (DEFAULT).
+func newCell(tv *tableView, st *dataStyles, ref cellRef, unset string) gui.TableCellCfg {
+	var cell gui.TableCellCfg
+	if v, ok := tv.Data.Pending.NewValue(ref.Row, ref.Column); ok {
+		cell = st.editedCell(v)
+		if !v.Null {
+			cell.TextStyle = &st.added
+		}
+	} else {
+		cell = gui.TableCellCfg{Value: unset, TextStyle: &st.placeholder}
+	}
+	return selected(tv, ref, cell, true)
+}
+
+// selected tints a cell of a selected row and marks the active one.
+func selected(tv *tableView, ref cellRef, cell gui.TableCellCfg, edit bool) gui.TableCellCfg {
+	s := tv.Data.Sel
+	if !edit || !s.has(ref.key()) {
+		return cell
+	}
+	cell = inSelection(cell)
+	if s.Column == ref.Column {
+		cell = active(cell)
+	}
+	return cell
 }
 
 // editedCell shows a pending value, highlighted.
@@ -235,49 +250,54 @@ func (st *dataStyles) editedCell(v editing.Value) gui.TableCellCfg {
 // keeps the value, Escape discards it and Ctrl+0 sets NULL.
 func editCell(tv *tableView, ref cellRef) gui.TableCellCfg {
 	e := tv.Data.Edit
-	gen := e.Gen
-	current := func() bool { cur := tv.Data.Edit; return cur.Active && cur.Gen == gen }
 
 	width := components.CellText(e.Text) + components.ButtonRoom
 	if n := utf8.RuneCountInString(width); n < editMinChars {
 		width += strings.Repeat(" ", 2*(editMinChars-n))
 	}
-	return gui.TableCellCfg{
-		Value: width,
-		Content: gui.Input(gui.InputCfg{
-			ID:          editID,
-			Text:        e.Text,
-			Sizing:      gui.FillFit,
-			Padding:     gui.PadVH(0, 2),
-			Placeholder: "''",
-			A11YCfg:     gui.A11YCfg{A11YLabel: "Value of " + ref.Column},
-			OnTextChanged: func(s string, ctx gui.EventCtx) {
-				if current() {
-					tv.Data.Edit.Text = s
-				}
-			},
-			OnTextCommit: func(s string, _ gui.InputCommitReason, ctx gui.EventCtx) {
-				if current() {
-					tv.Data.Edit.Text = s
-					setCell(ctx.Window, tv, ref, editing.Text(s))
-				}
-			},
-			OnKeyDown: func(ctx gui.EventCtx) {
-				ev := ctx.Event
-				if ev == nil || !current() {
-					return
-				}
-				switch {
-				case ev.KeyCode == gui.KeyEscape:
-					endEdit(tv)
-					ctx.Consume()
-				case ev.KeyCode == gui.Key0 && ev.Modifiers.Has(gui.ModCtrl):
-					setNull(ctx.Window, tv)
-					ctx.Consume()
-				}
-			},
-		}),
-	}
+	return gui.TableCellCfg{Value: width, Content: cellInput(tv, ref)}
+}
+
+// cellInput is the input of the cell being edited, in the grid or in the
+// Documents view. Enter or leaving it keeps the value, Escape discards it
+// and Ctrl+0 sets NULL.
+func cellInput(tv *tableView, ref cellRef) gui.View {
+	e := tv.Data.Edit
+	gen := e.Gen
+	current := func() bool { cur := tv.Data.Edit; return cur.Active && cur.Gen == gen }
+	return gui.Input(gui.InputCfg{
+		ID:          editID,
+		Text:        e.Text,
+		Sizing:      gui.FillFit,
+		Padding:     gui.PadVH(0, 2),
+		Placeholder: "''",
+		A11YCfg:     gui.A11YCfg{A11YLabel: "Value of " + ref.Column},
+		OnTextChanged: func(s string, ctx gui.EventCtx) {
+			if current() {
+				tv.Data.Edit.Text = s
+			}
+		},
+		OnTextCommit: func(s string, _ gui.InputCommitReason, ctx gui.EventCtx) {
+			if current() {
+				tv.Data.Edit.Text = s
+				setCell(ctx.Window, tv, ref, editing.Text(s))
+			}
+		},
+		OnKeyDown: func(ctx gui.EventCtx) {
+			ev := ctx.Event
+			if ev == nil || !current() {
+				return
+			}
+			switch {
+			case ev.KeyCode == gui.KeyEscape:
+				endEdit(tv)
+				ctx.Consume()
+			case ev.KeyCode == gui.Key0 && ev.Modifiers.Has(gui.ModCtrl):
+				setNull(ctx.Window, tv)
+				ctx.Consume()
+			}
+		},
+	})
 }
 
 // pendingSummary describes the pending changes for the toolbar.
