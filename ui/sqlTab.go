@@ -429,6 +429,8 @@ func sqlResults(ed *sqlEditor) gui.View {
 						},
 					}),
 					gui.Text(gui.TextCfg{Text: info, TextStyle: t.TextStyleCaption}),
+					components.Spacer(),
+					exportButton("sql-export", ed.PageLoading, func(w *gui.Window) { exportResult(w, ed) }),
 				},
 			}),
 			resultGrid("sql-grid", p.Result, &ed.gridSize),
@@ -456,4 +458,25 @@ func sqlResults(ed *sqlEditor) gui.View {
 		SizeBorder: gui.NoBorder,
 		Content:    content,
 	})
+}
+
+// exportResult opens the Export dialog for the editor's result.
+func exportResult(w *gui.Window, ed *sqlEditor) {
+	a := appOf(w)
+	s, ok := a.Sessions.Get(ed.Key.ConnID)
+	if !ok || ed.Page == nil {
+		return
+	}
+	page, key := *ed.Page, ed.Key
+	var stream func(context.Context, query.RowSink) error
+	if page.Repeatable {
+		stream = func(ctx context.Context, sink query.RowSink) error {
+			db, err := s.Pool(ctx, key.Database)
+			if err != nil {
+				return err
+			}
+			return query.StreamRows(ctx, db, page, sink)
+		}
+	}
+	openExport(w, "query", page.Result, stream)
 }

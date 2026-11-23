@@ -85,13 +85,13 @@ edit data safely: every change is previewed as SQL and saved in a single transac
 
 ### And
 
+- Export a page or the full result of any grid to CSV or JSON.
 - Light and dark theme, remembered across sessions.
 - Pure Go SQLite: no CGO needed on Linux and Windows.
 
 ### Coming up
 
 - A history panel with search.
-- Export to CSV and JSON.
 - Packages for AUR, Homebrew and winget.
 
 ## Install

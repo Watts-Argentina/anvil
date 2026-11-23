@@ -55,6 +55,7 @@ type App struct {
 	Pending   string // password in the connect prompt
 	NewTable  tableForm
 	NewDB     databaseForm
+	Export    exportForm
 
 	SidebarRatio  float32
 	KeyringWarned bool

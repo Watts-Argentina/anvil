@@ -188,6 +188,15 @@ func dataTab(w *gui.Window, a *App, tv *tableView) gui.View {
 		components.Spacer(),
 		gui.Text(gui.TextCfg{Text: status, TextStyle: t.TextStyleCaption}),
 		countView,
+		exportButton("data-export", d.Loading || !d.fetched || d.Err != "", func(w *gui.Window) {
+			openExport(w, tv.Table.Name, tv.Data.Page.Result, func(ctx context.Context, sink query.RowSink) error {
+				src, err := tableSource(ctx, a, tv)
+				if err != nil {
+					return err
+				}
+				return query.StreamTable(ctx, src, sink)
+			})
+		}),
 	)
 
 	var body gui.View

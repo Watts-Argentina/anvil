@@ -8,6 +8,7 @@ import (
 
 	"github.com/Watts-Argentina/anvil/internal/drivers"
 	"github.com/Watts-Argentina/anvil/internal/editing"
+	"github.com/Watts-Argentina/anvil/internal/query"
 	"github.com/Watts-Argentina/anvil/models"
 	"github.com/go-gui-org/go-gui/gui"
 	"github.com/go-gui-org/go-gui/gui/backend/soft"
@@ -102,6 +103,10 @@ func TestNoOverflow(t *testing.T) {
 				"Failed to connect. "+strings.Repeat("password authentication failed ", 6))
 		}},
 		{"delete", func(w *gui.Window, a *App) { askDelete(w, models.DBConn{Name: long}) }},
+		{"export", func(w *gui.Window, a *App) {
+			openExport(w, long, query.Result{}, nil)
+			a.Export.Error = "Export failed. " + strings.Repeat("could not write the file ", 8)
+		}},
 		{"error", func(w *gui.Window, a *App) { showError(w, errors.New(strings.Repeat("error text ", 40))) }},
 		{"new-table", func(w *gui.Window, a *App) {
 			openNewTable(w, a.table().Key)

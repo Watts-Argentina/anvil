@@ -3,7 +3,9 @@ package ui
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"github.com/Watts-Argentina/anvil/internal/export"
 	"os"
 	"path/filepath"
 	"slices"
@@ -959,5 +961,67 @@ func TestAutocomplete(t *testing.T) {
 	step(w)
 	if ed.comp.Open {
 		t.Fatal("popup open after moving the cursor")
+	}
+}
+
+func TestExport(t *testing.T) {
+	a := testApp(t)
+	w := newTestWindow(t, a)
+	tv := a.table() // customers, 3 rows
+	loadData(w, tv, query.First)
+	waitFor(t, w, func() bool { return tv.Data.fetched })
+	tv.Data.Page.Rows = tv.Data.Page.Rows[:1] // the page holds fewer rows than the table
+	w.TestRender(nil)
+
+	if err := w.TestClick(w.ResolveID("data-export")[0]); err != nil {
+		t.Fatal(err)
+	}
+	w.TestRender(nil)
+	if !w.DialogIsVisible() || !a.Export.Full {
+		t.Fatalf("dialog=%v form=%+v", w.DialogIsVisible(), a.Export)
+	}
+	checkFindings(t, w)
+
+	// Full result: every row of the table, read again.
+	path := filepath.Join(t.TempDir(), "customers.csv")
+	runExport(w, path)
+	waitFor(t, w, func() bool { return !a.Export.Busy })
+	b, err := os.ReadFile(path)
+	if err != nil || a.Export.Error != "" {
+		t.Fatalf("err=%v form error=%q", err, a.Export.Error)
+	}
+	if got := strings.Count(string(b), "\n"); got != 4 || !strings.HasPrefix(string(b), "id,name,email,created\n") {
+		t.Fatalf("csv =\n%s", b)
+	}
+	if w.DialogIsVisible() || !strings.Contains(a.Status, "Exported 3 rows") {
+		t.Fatalf("dialog=%v status=%q", w.DialogIsVisible(), a.Status)
+	}
+
+	// Current page, as JSON.
+	openExport(w, "customers", tv.Data.Page.Result, nil)
+	a.Export.Format = export.JSON
+	path = filepath.Join(t.TempDir(), "customers.json")
+	runExport(w, path)
+	waitFor(t, w, func() bool { return !a.Export.Busy })
+	var rows []map[string]any
+	if b, err = os.ReadFile(path); err == nil {
+		err = json.Unmarshal(b, &rows)
+	}
+	if err != nil || len(rows) != 1 || rows[0]["name"] != "Ana" || rows[0]["id"] != 1.0 {
+		t.Fatalf("err=%v json=%s", err, b)
+	}
+
+	// Editor result: the full result runs the query again, unpaginated.
+	ed := openSQLTab(w, a, tv.Key)
+	ed.Page = &query.RowsPage{SQL: "select total from orders order by id", Repeatable: true}
+	exportResult(w, ed)
+	if !a.Export.Full {
+		t.Fatal("a repeatable result offers the full export")
+	}
+	path = filepath.Join(t.TempDir(), "query.csv")
+	runExport(w, path)
+	waitFor(t, w, func() bool { return !a.Export.Busy })
+	if b, err = os.ReadFile(path); err != nil || string(b) != "total\n50\n250.5\n120\n" {
+		t.Fatalf("err=%v csv=%q form=%q", err, b, a.Export.Error)
 	}
 }
