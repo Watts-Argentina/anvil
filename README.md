@@ -4,6 +4,8 @@
 
 <h1 align="center">Anvil</h1>
 
+<p align="center"><em>The only DBM you need</em></p>
+
 A free, cross-platform desktop database manager written in Go with
 [go-gui](https://github.com/go-gui-org/go-gui). Connect to a database, explore its tables, run SQL and
 edit data safely: every change is previewed before saving and saved in a single transaction.

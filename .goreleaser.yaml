@@ -21,7 +21,7 @@ builds:
     goos: [linux, windows, darwin]
     goarch: [amd64, arm64]
     overrides:
-      # Sin consola en Windows (equivale al -H=windowsgui del makefile)
+      # No console on Windows (same as -H=windowsgui in the makefile)
       - goos: windows
         goarch: amd64
         ldflags: ["-s -w -X main.version={{.Version}} -H=windowsgui"]

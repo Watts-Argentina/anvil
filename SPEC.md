@@ -599,12 +599,16 @@ Findings from a project review at `6d19248`, to take into account in the next ve
 - Configurable query timeout, and a warning when the client-side pagination fallback has to read and
   discard many rows to reach the offset.
 - Use the connection `Color` to tint the top bar or the SQL tab, as a signal for production connections.
+- **More backends**: Redis and other NoSQL databases, following the MongoDB approach (§2.3): their own
+  package under `internal/` that returns the shared types, so the sidebar, tabs, grid and export are reused.
+- **File-based storage**: S3 (and compatible services) and other object or file stores, browsed from the
+  sidebar like a connection.
 
 **To remove or simplify**
 
 - Mark Oracle and SQL Server as *experimental* in the README until CI covers them against real servers; focus
   1.0 on SQLite, PostgreSQL and MySQL.
-- Translate the remaining Spanish comments (`main.go`, `.goreleaser.yaml`) to English.
+- ~~Translate the remaining Spanish comments (`main.go`, `.goreleaser.yaml`) to English.~~ Done.
 - Reduce the duplication between §12 and the README feature list: progress lives here, the README stays
   user-facing.
 
