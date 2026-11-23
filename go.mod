@@ -14,6 +14,7 @@ require (
 	github.com/microsoft/go-mssqldb v1.11.2
 	github.com/sijms/go-ora/v2 v2.9.0
 	github.com/zalando/go-keyring v0.2.8
+	go.mongodb.org/mongo-driver/v2 v2.10.1
 	gorm.io/gorm v1.31.2
 )
 
@@ -35,12 +36,16 @@ require (
 	github.com/jezek/xgb v1.3.1 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/tdewolff/parse/v2 v2.8.16 // indirect
+	github.com/xdg-go/scram v1.4.0 // indirect
+	github.com/xdg-go/stringprep v1.0.4 // indirect
+	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/yuin/goldmark v1.8.5 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	golang.org/x/crypto v0.57.0 // indirect

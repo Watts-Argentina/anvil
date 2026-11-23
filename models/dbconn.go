@@ -10,6 +10,7 @@ const (
 	EngineMySQL    = "mysql"
 	EngineMSSQL    = "mssql"
 	EngineOracle   = "oracle"
+	EngineMongo    = "mongodb"
 )
 
 type DBConn struct {
@@ -40,6 +41,8 @@ func DefaultPort(engine string) int {
 		return 1433
 	case EngineOracle:
 		return 1521
+	case EngineMongo:
+		return 27017
 	}
 	return 0
 }

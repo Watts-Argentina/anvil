@@ -142,6 +142,10 @@ func TestValidate(t *testing.T) {
 		{"bad engine", models.DBConn{Name: "s", Engine: "oracle"}, false},
 		{"bad port", func() models.DBConn { c := pgConn("pg"); c.Port = 0; return c }(), false},
 		{"bad color", func() models.DBConn { c := pgConn("pg"); c.Color = "red"; return c }(), false},
+		{"mongo no user", models.DBConn{Name: "m", Engine: models.EngineMongo, Host: "localhost", Port: 27017}, true},
+		{"mongo uri", models.DBConn{Name: "m", Engine: models.EngineMongo, Host: "mongodb+srv://c.example.net"}, true},
+		{"mongo no host", models.DBConn{Name: "m", Engine: models.EngineMongo, Port: 27017}, false},
+		{"mongo bad port", models.DBConn{Name: "m", Engine: models.EngineMongo, Host: "localhost"}, false},
 	}
 	for _, tc := range cases {
 		if err := Validate(tc.conn); (err == nil) != tc.ok {

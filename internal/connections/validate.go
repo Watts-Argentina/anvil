@@ -34,6 +34,19 @@ func Validate(conn models.DBConn) error {
 		if strings.TrimSpace(conn.DB) == "" {
 			return invalid("The Oracle service name is required.")
 		}
+	case models.EngineMongo:
+		// The host may be a full connection string (mongodb+srv:// for
+		// Atlas), and servers without authentication have no user.
+		if strings.TrimSpace(conn.Host) == "" {
+			return invalid("The host or connection string is required.")
+		}
+		if IsMongoURI(conn.Host) {
+			return nil
+		}
+		if conn.Port < 1 || conn.Port > 65535 {
+			return invalid("The port must be between 1 and 65535.")
+		}
+		return nil
 	case models.EnginePostgres, models.EngineMySQL, models.EngineMSSQL:
 	default:
 		return invalid(fmt.Sprintf("Unknown database engine %q.", conn.Engine))
@@ -49,4 +62,9 @@ func Validate(conn models.DBConn) error {
 		return invalid("The user is required.")
 	}
 	return nil
+}
+
+// IsMongoURI reports whether a MongoDB host is a full connection string.
+func IsMongoURI(host string) bool {
+	return strings.HasPrefix(host, "mongodb://") || strings.HasPrefix(host, "mongodb+srv://")
 }
