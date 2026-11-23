@@ -1,14 +1,18 @@
-# Anvil
+<p align="center">
+  <img src="docs/logo.svg" alt="Anvil logo" width="128">
+</p>
+
+<h1 align="center">Anvil</h1>
 
 A free, cross-platform desktop database manager written in Go with
 [go-gui](https://github.com/go-gui-org/go-gui). Connect to a database, explore its tables, run SQL and
-edit data safely: every change is previewed as SQL and saved in a single transaction.
+edit data safely: every change is previewed before saving and saved in a single transaction.
 
 ![The Data tab of a books table with pending changes: an edited price, a new row and a deleted row](docs/screenshots/data.png)
 
 |              |                                                     |
 |--------------|-----------------------------------------------------|
-| **Engines**  | SQLite, PostgreSQL, MySQL / MariaDB, SQL Server, Oracle (12c+) |
+| **Engines**  | SQLite, PostgreSQL, MySQL / MariaDB, SQL Server, Oracle (12c+), MongoDB |
 | **Platforms**| Linux (X11 / Wayland), Windows, macOS               |
 | **License**  | MIT                                                 |
 
@@ -83,6 +87,20 @@ edit data safely: every change is previewed as SQL and saved in a single transac
 - Autocompletion of keywords, tables and columns (`Ctrl+Space` to open it on demand).
 - Query history stored locally.
 
+### MongoDB
+
+- Connect with a host or a full connection string (`mongodb://…`, `mongodb+srv://…` for Atlas); user and
+  password are optional, with TLS and client certificates.
+- Databases and collections are listed like databases and tables. The columns of a collection are the
+  fields found in a sample of its documents, with their BSON type.
+- **Documents view** (the default): one card per document, with objects and arrays that expand to show
+  their fields. A **Documents | Table** switch shows the same page as a grid.
+- Edit, add and delete documents like rows: each document is found by `_id`, and the changes are shown as
+  mongosh calls before saving. On a replica set they are saved in one transaction.
+- The editor runs **database commands** as JSON, such as
+  `{"find": "users", "filter": {"age": {"$gt": 30}}}`, with paginated results. Read-only connections only
+  accept read commands.
+
 ### And
 
 - Export a page or the full result of any grid to CSV or JSON.
@@ -92,6 +110,7 @@ edit data safely: every change is previewed as SQL and saved in a single transac
 ### Coming up
 
 - A history panel with search.
+- macOS binaries in the releases (they need a build on a Mac).
 - Packages for AUR, Homebrew and winget.
 
 ## Install
@@ -167,8 +186,8 @@ go vet ./...
 go test ./...
 ```
 
-Tests against real PostgreSQL, MySQL, SQL Server and Oracle servers are skipped unless these variables are
-set (five space-separated fields; for Oracle the last one is the service). With Docker, throwaway servers
+Tests against real PostgreSQL, MySQL, SQL Server, Oracle and MongoDB servers are skipped unless these variables are
+set (five space-separated fields; for Oracle the last one is the service; MongoDB takes connection strings). With Docker, throwaway servers
 are enough:
 
 ```sh
@@ -176,13 +195,19 @@ docker run -d --rm --name anvil-pg -e POSTGRES_PASSWORD=anvil -p 127.0.0.1:55432
 docker run -d --rm --name anvil-my -e MYSQL_ROOT_PASSWORD=anvil -e MYSQL_DATABASE=anvil -p 127.0.0.1:53306:3306 mysql:8.4
 docker run -d --rm --name anvil-ms -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD=Anvil_Test_1 -p 127.0.0.1:51433:1433 mcr.microsoft.com/mssql/server:2022-latest
 docker run -d --rm --name anvil-ora -e ORACLE_PASSWORD=anvil -e APP_USER=anvil -e APP_USER_PASSWORD=anvil -p 127.0.0.1:51521:1521 gvenzl/oracle-free:23-slim
+docker run -d --rm --name anvil-mongo -p 127.0.0.1:57017:27017 mongo:8 --replSet rs0 --bind_ip_all
+docker run -d --rm --name anvil-mongo-sa -p 127.0.0.1:57018:27017 mongo:8
 # Once SQL Server is up, create the test database:
 docker exec anvil-ms /opt/mssql-tools18/bin/sqlcmd -C -U sa -P Anvil_Test_1 -Q "CREATE DATABASE anvil"
+# And start the MongoDB replica set (transactions need one):
+docker exec anvil-mongo mongosh --quiet --eval 'rs.initiate()'
 ANVIL_TEST_PG="127.0.0.1 55432 postgres anvil postgres" \
 ANVIL_TEST_MYSQL="127.0.0.1 53306 root anvil anvil" \
 ANVIL_TEST_MSSQL="127.0.0.1 51433 sa Anvil_Test_1 anvil" \
-ANVIL_TEST_ORACLE="127.0.0.1 51521 anvil anvil FREEPDB1" go test -count=1 ./...
-docker rm -f anvil-pg anvil-my anvil-ms anvil-ora
+ANVIL_TEST_ORACLE="127.0.0.1 51521 anvil anvil FREEPDB1" \
+ANVIL_TEST_MONGO="mongodb://127.0.0.1:57017/?directConnection=true" \
+ANVIL_TEST_MONGO_STANDALONE="mongodb://127.0.0.1:57018/" go test -count=1 ./...
+docker rm -f anvil-pg anvil-my anvil-ms anvil-ora anvil-mongo anvil-mongo-sa
 ```
 
 UI tests run headless with go-gui's software renderer. They check for duplicate IDs, missing handlers and
@@ -210,12 +235,15 @@ internal/query        execution, pagination (with the FK filter) and cancellatio
 internal/editing      pending changes, validation, DML and the save transaction
 internal/schema       DDL to create tables and databases
 internal/history      query history
+internal/completion   SQL editor autocompletion
+internal/export       CSV / JSON writers
+internal/mongodb      MongoDB: collections, document pages, editing by _id, commands
 internal/settings     local preferences
 internal/storage      opening and migrating the local database
 models/               GORM models for the local configuration
 pkg/appErrors         errors with a title and description for the UI
 assets/               embedded SVG icons
-docs/screenshots/     README screenshots
+docs/                 logo and README screenshots
 agents/skills/        guides for coding agents working on the repo
 ```
 

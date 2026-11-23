@@ -232,7 +232,8 @@ the UI branches with `Session.IsMongo()`.
 - **Central area**: a tab bar (§4.1) above the active tab. A table tab shows the table with two views:
   - **Structure**: columns with type, nullable, PK/autoincrement and FK.
   - **Data**: paginated grid of the table (§6), with foreign key navigation (§6.5) and editing (§7) through
-    the bar below the grid.
+    the bar below the grid. In MongoDB a **Documents | Table** switch under the toolbar shows the documents
+    as cards (the default) or as the grid (§2.3).
   A new table tab starts on the last view chosen. A table opened by following a FK has a back button
   (`‹`) next to its name.
 - **Status bar**: active connection (the active tab's), query status, time, rows, pagination.
@@ -528,7 +529,8 @@ The 6 findings from the initial review are resolved (milestone 1):
   (`ANVIL_README_SHOTS=docs/screenshots`).
 - **MongoDB** (§2.3, §5.3): connection (host or connection string), databases and collections, document
   grid with editing by `_id` (transactional on replica sets), commands in the editor and export
-  (`internal/mongodb`).
+  (`internal/mongodb`). **Documents view** (`ui/docView.go`): one card per document with expandable
+  objects and arrays (read-only), the default in the Data tab, with a switch to the grid.
 - **Milestone 5**: export, packaging and release. Done so far: `makefile` with per-platform builds and
   GoReleaser on GitHub Actions for `v*` tags (§13), and export to CSV/JSON (§9). Pending: the macOS build
   (§13) and the packages.
