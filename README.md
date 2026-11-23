@@ -80,6 +80,7 @@ edit data safely: every change is previewed as SQL and saved in a single transac
 - Several statements run in order in the same session; the last result is shown.
 - Runs in the background with a **Stop** button; results are paginated.
 - Warnings before an `UPDATE` / `DELETE` without `WHERE` or DML outside a transaction.
+- Autocompletion of keywords, tables and columns (`Ctrl+Space` to open it on demand).
 - Query history stored locally.
 
 ### And
@@ -89,7 +90,7 @@ edit data safely: every change is previewed as SQL and saved in a single transac
 
 ### Coming up
 
-- Autocompletion of keywords, tables and columns; a history panel with search.
+- A history panel with search.
 - Export to CSV and JSON.
 - Packages for AUR, Homebrew and winget.
 

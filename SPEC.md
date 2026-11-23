@@ -49,6 +49,7 @@ internal/query       async execution, pagination (with FK filter), cancellation
 internal/editing     pending changes, validation, DML generation and the save transaction
 internal/schema      DDL to create tables and databases
 internal/history     query history
+internal/completion  SQL editor autocompletion: keywords per engine, word at cursor, candidates
 internal/export      (pending) CSV / JSON
 models/              GORM models for the local configuration
 pkg/appErrors        errors with Title/Description to show in the UI
@@ -241,8 +242,13 @@ assets/              own embedded SVG icons
 - Editor: `github.com/go-gui-org/go-edit` (pure Go; selection, undo, line numbers).
 - **Syntax highlighting** with `chroma` through go-edit (lexer by engine: `postgresql`, `mysql`, `tsql`, `sql`;
   `github-dark` / `github` style depending on the theme).
-- **Autocompletion**: dialect keywords, table and column names of the active connection
-  (cached on connect, with manual refresh).
+- **Autocompletion** (`internal/completion`, `ui/completion.go`): dialect keywords, table and column names
+  of the editor's database. Tables come from the sidebar list; columns are loaded in the background for the
+  tables mentioned in the text (or a table just completed) and cached per database. The sidebar refresh
+  clears that cache. A popup under the cursor opens while typing an identifier or after `table.`
+  (`schema.` suggests tables, an unknown qualifier is taken as an alias and suggests every known column);
+  `Ctrl+Space` opens it on demand. Up/Down choose, Enter/Tab/click insert, Escape or moving the cursor
+  closes it. Keywords keep the case of what was typed; identifiers are inserted unquoted.
 - **History** per connection, persisted locally (§6.3), with search and the option to load a query back
   into the editor.
 
@@ -446,7 +452,8 @@ The 6 findings from the initial review are resolved (milestone 1):
   read-only, Stop, results pagination and saving to history (`internal/query`, `internal/history`).
 - **Foreign key navigation** in the Data tab (§6.5): link buttons on FK cells, filtered referenced table,
   back button.
-- **Milestone 3**: autocompletion, history panel with search, metadata refresh.
+- **Milestone 3**: autocompletion (done), metadata refresh (done, sidebar refresh). Pending: history panel
+  with search.
 - **Milestone 4 (done)**: grid editing (`internal/editing`, §7): pending changes, SQL preview, single
   transaction with the `RowsAffected == 1` check, row identification with or without a PK, multi-row
   selection with the `#` column, bar below the grid (Save, Cancel | Add, Delete | Set NULL, Set Now),
@@ -489,6 +496,10 @@ The 6 findings from the initial review are resolved (milestone 1):
   not check a window with an SQL tab active.
 - go-gui v0.92: there is no click count; double clicks (sidebar table, tab) are detected with the time between
   two clicks on the same widget (`App.doubleClick`, 400 ms).
+- go-edit v0.12: no completion popup. Anvil draws its own (`ui/completion.go`): actions read the cursor, scroll
+  and measurer through reflection (`ui/editorState.go`) and place the popup with go-edit's draw formula, which
+  assumes no line wrap and no folding (the SQL editor uses neither). The text area offset (the editor's
+  default padding) is measured from the layout.
 - go-edit v0.12: `ActionFunc` takes an unexported type; the run action is declared generic
   (`runAction[S any]`) and reads the cursors through reflection.
 - When an execution ends with an open transaction (`BEGIN` without `COMMIT`), a `ROLLBACK` is issued and the

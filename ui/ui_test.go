@@ -860,3 +860,104 @@ func TestColumnCache(t *testing.T) {
 		t.Error("refresh kept the cached columns")
 	}
 }
+
+// step renders frames until the queued editor actions and their results ran.
+func step(w *gui.Window) {
+	for range 3 {
+		w.TestRender(nil)
+		w.FrameFn()
+	}
+}
+
+func TestAutocomplete(t *testing.T) {
+	a := testApp(t)
+	w := newTestWindow(t, a)
+	ed := openSQLTab(w, a, a.table().Key)
+	soft.RenderToImage(w, 1) // text measurer: editor actions need it
+	w.SetFocus(ed.ID)
+	step(w)
+
+	if err := w.TestType(ed.ID, "select * from cust"); err != nil {
+		t.Fatal(err)
+	}
+	step(w)
+	if !ed.comp.Open || len(ed.comp.Items) == 0 || ed.comp.Items[0].Text != "customers" {
+		t.Fatalf("popup = %+v", ed.comp)
+	}
+	if ed.comp.X <= 0 || ed.comp.Y <= 0 {
+		t.Errorf("caret = %v,%v", ed.comp.X, ed.comp.Y)
+	}
+	checkFindings(t, w)
+
+	// Enter accepts instead of inserting a new line.
+	if err := w.TestKey(ed.ID, gui.KeyEnter, 0); err != nil {
+		t.Fatal(err)
+	}
+	step(w)
+	if got := ed.Buf.String(); got != "select * from customers" {
+		t.Fatalf("text = %q", got)
+	}
+	if ed.comp.Open {
+		t.Fatal("popup still open after accepting")
+	}
+
+	// After "customers." the columns of that table are suggested (they
+	// load in the background, mentioned by the text).
+	waitFor(t, w, func() bool { return len(a.Columns[ed.Key]["customers"]) > 0 })
+	if err := w.TestType(ed.ID, " where customers.em"); err != nil {
+		t.Fatal(err)
+	}
+	step(w)
+	if !ed.comp.Open || ed.comp.Items[0] != (completion.Candidate{Text: "email", Kind: completion.Column}) {
+		t.Fatalf("popup = %+v", ed.comp.Items)
+	}
+	if err := w.TestKey(ed.ID, gui.KeyEscape, 0); err != nil {
+		t.Fatal(err)
+	}
+	step(w)
+	if ed.comp.Open || ed.Buf.String() != "select * from customers where customers.em" {
+		t.Fatalf("escape: open=%v text=%q", ed.comp.Open, ed.Buf.String())
+	}
+
+	// Ctrl+Space reopens it; Down and Tab pick the second candidate.
+	if err := w.TestType(ed.ID, " or na"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.TestKey(ed.ID, gui.KeyEscape, 0); err != nil {
+		t.Fatal(err)
+	}
+	step(w)
+	if err := w.TestKey(ed.ID, gui.KeySpace, gui.ModCtrl); err != nil {
+		t.Fatal(err)
+	}
+	step(w)
+	if !ed.comp.Open {
+		t.Fatal("Ctrl+Space did not open the popup")
+	}
+	want := ed.comp.Items[1%len(ed.comp.Items)].Text
+	for _, k := range []gui.KeyCode{gui.KeyDown, gui.KeyTab} {
+		if err := w.TestKey(ed.ID, k, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	step(w)
+	if got := ed.Buf.String(); !strings.HasSuffix(got, " or "+want) {
+		t.Fatalf("text = %q, want suffix %q", got, want)
+	}
+
+	// Moving the cursor closes the popup.
+	if err := w.TestType(ed.ID, " and cu"); err != nil {
+		t.Fatal(err)
+	}
+	step(w)
+	if !ed.comp.Open {
+		t.Fatal("popup closed")
+	}
+	if err := w.TestKey(ed.ID, gui.KeyLeft, 0); err != nil {
+		t.Fatal(err)
+	}
+	step(w)
+	if ed.comp.Open {
+		t.Fatal("popup open after moving the cursor")
+	}
+}

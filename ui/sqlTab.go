@@ -36,6 +36,8 @@ type sqlEditor struct {
 	PageLoading bool
 	Err         string
 
+	comp completionState
+
 	// Sizes measured in the previous frame: go-edit needs a fixed width
 	// and height, and the grid a bounded height.
 	editorSize components.BoxSize
@@ -55,7 +57,9 @@ func (ed *sqlEditor) close() {
 // newEditor creates an SQL editor on a database.
 func newEditor(a *App, key dbKey) *sqlEditor {
 	a.editorSeq++
-	return &sqlEditor{ID: gui.ScopeIDN("sql-editor", "", a.editorSeq), Key: key, Buf: buffer.New()}
+	ed := &sqlEditor{ID: gui.ScopeIDN("sql-editor", "", a.editorSeq), Key: key, Buf: buffer.New()}
+	ed.watchEdits()
+	return ed
 }
 
 // editorByID finds the editor of an SQL tab by its widget ID.
@@ -115,6 +119,7 @@ func textOffset(text string, p buffer.Position) int {
 func sqlTab(w *gui.Window, a *App, ed *sqlEditor) gui.View {
 	t := gui.CurrentTheme()
 	hl := ed.highlighter(a)
+	syncCompletion(w, ed)
 
 	runBtn := components.IconButton("play", "Run", gui.ButtonCfg{
 		ID:       "sql-run",
@@ -146,6 +151,8 @@ func sqlTab(w *gui.Window, a *App, ed *sqlEditor) gui.View {
 		gui.Text(gui.TextCfg{Text: dbLabel(a, ed.Key), TextStyle: t.TextStyleCaption}),
 	)
 
+	actions := completionActions()
+	actions[actionRun] = edit.Action{ID: actionRun, PreservesAnchor: true, Execute: runAction}
 	editor := edit.Editor(edit.EditorCfg{
 		ID:               ed.ID,
 		Buffer:           ed.Buf,
@@ -160,11 +167,13 @@ func sqlTab(w *gui.Window, a *App, ed *sqlEditor) gui.View {
 				{Key: gui.KeyEnter, Modifiers: gui.ModCtrl, ActionID: actionRun},
 				{Key: gui.KeyEnter, Modifiers: gui.ModSuper, ActionID: actionRun},
 			},
-		}},
-		Actions: map[string]edit.Action{
-			actionRun: {ID: actionRun, PreservesAnchor: true, Execute: runAction},
-		},
+		}, completionKeymap(ed.comp.Open)},
+		Actions: actions,
 	})
+	pane := []gui.View{editor}
+	if ed.comp.Open {
+		pane = append(pane, completionPopup(ed))
+	}
 
 	return gui.Column(gui.ContainerCfg{
 		ID:         "sql",
@@ -187,7 +196,12 @@ func sqlTab(w *gui.Window, a *App, ed *sqlEditor) gui.View {
 						Sizing:     gui.FillFixed,
 						Padding:    gui.NoPadding,
 						SizeBorder: gui.NoBorder,
-						Content:    []gui.View{components.MeasuredBox(ed.ID+"-pane", &ed.editorSize, true, editor)},
+						Content: []gui.View{components.MeasuredBox(ed.ID+"-pane", &ed.editorSize, true, gui.Column(gui.ContainerCfg{
+							Padding:     gui.NoPadding,
+							SizeBorder:  gui.NoBorder,
+							AmendLayout: ed.measureText,
+							Content:     pane,
+						}))},
 					}),
 					sqlResults(ed),
 				},
