@@ -17,6 +17,7 @@ import (
 // overflows lists the shapes that stick out of an ancestor that does not
 // scroll or clip on that axis. The text measurer must be installed
 // (soft.RenderToImage) so sizes are the real ones.
+// The 1px tolerance absorbs sub-pixel centering, which differs with macOS font metrics.
 func overflows(ly *gui.Layout) []string {
 	var out []string
 	var walk func(n *gui.Layout, boundX, boundY *gui.Shape)
@@ -25,12 +26,12 @@ func overflows(ly *gui.Layout) []string {
 		if s == nil {
 			return
 		}
-		if b := boundX; b != nil && s.Width > 0 && (s.X < b.X-0.5 || s.X+s.Width > b.X+b.Width+0.5) {
+		if b := boundX; b != nil && s.Width > 0 && (s.X < b.X-1 || s.X+s.Width > b.X+b.Width+1) {
 			out = append(out, fmt.Sprintf("%q x [%.0f, %.0f] outside %q [%.0f, %.0f]",
 				s.ID, s.X, s.X+s.Width, b.ID, b.X, b.X+b.Width))
 			return
 		}
-		if b := boundY; b != nil && s.Height > 0 && (s.Y < b.Y-0.5 || s.Y+s.Height > b.Y+b.Height+0.5) {
+		if b := boundY; b != nil && s.Height > 0 && (s.Y < b.Y-1 || s.Y+s.Height > b.Y+b.Height+1) {
 			out = append(out, fmt.Sprintf("%q y [%.0f, %.0f] outside %q [%.0f, %.0f]",
 				s.ID, s.Y, s.Y+s.Height, b.ID, b.Y, b.Y+b.Height))
 			return
