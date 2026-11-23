@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -42,15 +43,46 @@ const (
 // scan reads up to limit rows from rows after skipping skip. more reports
 // that there was at least one more row.
 func scan(rows *sql.Rows, skip, limit int) (res Result, more bool, err error) {
+	n := 0
+	err = each(rows, func(cols []Column) error {
+		res.Columns = cols
+		return nil
+	}, func(row []Value) error {
+		n++
+		switch {
+		case n <= skip:
+		case len(res.Rows) == limit:
+			more = true
+			return errStop
+		default:
+			res.Rows = append(res.Rows, row)
+		}
+		return nil
+	})
+	if err != nil {
+		return Result{}, false, err
+	}
+	return res, more, nil
+}
+
+// errStop ends each early without an error.
+var errStop = errors.New("stop")
+
+// each calls header with the columns and then row for every converted
+// row, until one of them returns an error. It closes rows.
+func each(rows *sql.Rows, header func([]Column) error, row func([]Value) error) error {
 	defer rows.Close()
 
 	types, err := rows.ColumnTypes()
 	if err != nil {
-		return Result{}, false, err
+		return err
 	}
-	res.Columns = make([]Column, len(types))
+	cols := make([]Column, len(types))
 	for i, t := range types {
-		res.Columns[i] = Column{Name: t.Name(), DBType: strings.ToUpper(t.DatabaseTypeName())}
+		cols[i] = Column{Name: t.Name(), DBType: strings.ToUpper(t.DatabaseTypeName())}
+	}
+	if err := header(cols); err != nil {
+		return err
 	}
 
 	dest := make([]any, len(types))
@@ -58,25 +90,22 @@ func scan(rows *sql.Rows, skip, limit int) (res Result, more bool, err error) {
 	for i := range dest {
 		ptrs[i] = &dest[i]
 	}
-
-	for n := 0; rows.Next(); n++ {
-		if n < skip {
-			continue
-		}
-		if len(res.Rows) == limit {
-			more = true
-			break
-		}
+	for rows.Next() {
 		if err := rows.Scan(ptrs...); err != nil {
-			return Result{}, false, err
+			return err
 		}
-		row := make([]Value, len(dest))
+		out := make([]Value, len(dest))
 		for i, v := range dest {
-			row[i] = convert(v, res.Columns[i].DBType)
+			out[i] = convert(v, cols[i].DBType)
 		}
-		res.Rows = append(res.Rows, row)
+		if err := row(out); err != nil {
+			if errors.Is(err, errStop) {
+				return nil
+			}
+			return err
+		}
 	}
-	return res, more, rows.Err()
+	return rows.Err()
 }
 
 // convert normalizes a scanned value for display (SPEC §6.4).
