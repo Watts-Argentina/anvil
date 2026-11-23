@@ -3,7 +3,9 @@ package ui
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 
 	"github.com/Watts-Argentina/anvil/internal/drivers"
 	"github.com/Watts-Argentina/anvil/models"
@@ -138,6 +140,7 @@ func loadTables(w *gui.Window, key dbKey, then func(w *gui.Window, tables []driv
 			return
 		}
 		a.Tables[key] = tables
+		delete(a.Columns, key) // a refresh also reloads the columns
 		if then != nil {
 			then(w, tables)
 		}
@@ -289,5 +292,46 @@ func askDelete(w *gui.Window, c models.DBConn) {
 				reloadConnections(w)
 			})
 		},
+	})
+}
+
+// loadColumns reads, for autocompletion, the columns of the tables not
+// loaded yet (SPEC §5.1).
+func loadColumns(w *gui.Window, key dbKey, tables []drivers.Table) {
+	a := appOf(w)
+	s, ok := a.Sessions.Get(key.ConnID)
+	if !ok {
+		return
+	}
+	known := a.Columns[key]
+	if known == nil {
+		known = map[string][]drivers.Column{}
+		a.Columns[key] = known
+	}
+	var missing []drivers.Table
+	for _, t := range tables {
+		name := strings.ToLower(t.Name)
+		if _, ok := known[name]; !ok {
+			known[name] = nil
+			missing = append(missing, t)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	async(w, func(ctx context.Context) (map[string][]drivers.Column, error) {
+		out := map[string][]drivers.Column{}
+		for _, t := range missing {
+			// A table that fails (dropped, no permission) is just not suggested.
+			if cols, err := s.Columns(ctx, key.Database, t); err == nil {
+				out[strings.ToLower(t.Name)] = cols
+			}
+		}
+		return out, nil
+	}, func(w *gui.Window, cols map[string][]drivers.Column, _ error) {
+		// Dropped by a refresh or a disconnect meanwhile: discard.
+		if m := appOf(w).Columns[key]; m != nil {
+			maps.Copy(m, cols)
+		}
 	})
 }

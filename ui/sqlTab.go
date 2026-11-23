@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"reflect"
 	"strings"
 	"time"
 
@@ -205,13 +204,12 @@ func editorHeight(ed *sqlEditor) float32 {
 // runAction is the editor's "anvil.run" action. ActionFunc receives the
 // editor state as *editorState, which go-edit does not export: the type
 // parameter S is inferred when runAction is assigned to edit.ActionFunc and
-// the cursors are read through reflection (the Cursors field and its type are exported).
+// the cursor is read through reflection (editorFields).
 func runAction[S any](cfg edit.EditorCfg, st *S, buf *buffer.Buffer, w *gui.Window) {
 	var cursor *edit.CursorState
-	if v := reflect.ValueOf(st).Elem().FieldByName("Cursors"); v.IsValid() {
-		if cs, ok := v.Interface().([]edit.CursorState); ok && len(cs) > 0 {
-			cursor = &cs[0]
-		}
+	if c := fieldsOf(st).cursor(); c != nil {
+		cp := *c
+		cursor = &cp
 	}
 
 	text := buf.String()

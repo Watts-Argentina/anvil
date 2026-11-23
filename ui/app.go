@@ -39,8 +39,11 @@ type App struct {
 	// Per database (for connections with a configured database, Database is "").
 	DBExpanded map[dbKey]bool
 	Tables     map[dbKey][]drivers.Table
-	Filter     map[dbKey]string
-	Loading    map[dbKey]bool
+	// Columns known for autocompletion, keyed by lower-case table name
+	// (SPEC §5.1). A nil entry is being loaded or failed to load.
+	Columns map[dbKey]map[string][]drivers.Column
+	Filter  map[dbKey]string
+	Loading map[dbKey]bool
 
 	// Open tabs of the central area, in order, and the active one (SPEC §4.1).
 	Tabs      []*tab
@@ -97,6 +100,7 @@ func newApp(conns *connections.Service, st *settings.Service, h *history.Service
 		Databases:    map[uint][]string{},
 		DBExpanded:   map[dbKey]bool{},
 		Tables:       map[dbKey][]drivers.Table{},
+		Columns:      map[dbKey]map[string][]drivers.Column{},
 		Filter:       map[dbKey]string{},
 		Loading:      map[dbKey]bool{},
 		SidebarRatio: 0.24,
@@ -122,6 +126,7 @@ func (a *App) forgetConn(id uint) {
 	for k := range a.Tables {
 		if k.ConnID == id {
 			delete(a.Tables, k)
+			delete(a.Columns, k)
 		}
 	}
 	for k := range a.DBExpanded {

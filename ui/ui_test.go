@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Watts-Argentina/anvil/internal/completion"
 	"github.com/Watts-Argentina/anvil/internal/connections"
 	"github.com/Watts-Argentina/anvil/internal/drivers"
 	"github.com/Watts-Argentina/anvil/internal/editing"
@@ -836,5 +837,26 @@ func TestWideTable(t *testing.T) {
 	w.TestRender(nil)
 	if cw := a.table().Data.gridSize.ContentW; cw == 0 || cw >= size.W {
 		t.Fatalf("content width after a narrow table = %v", cw)
+	}
+}
+
+func TestColumnCache(t *testing.T) {
+	a := testApp(t)
+	w := newTestWindow(t, a)
+	key := dbKey{ConnID: a.Selected}
+
+	loadColumns(w, key, completion.Mentioned("select * from Customers", a.Tables[key]))
+	waitFor(t, w, func() bool { return len(a.Columns[key]["customers"]) > 0 })
+	if got := a.Columns[key]["customers"][1].Name; got != "name" {
+		t.Errorf("second column = %q, want name", got)
+	}
+	if _, ok := a.Columns[key]["orders"]; ok {
+		t.Error("loaded the columns of a table not mentioned")
+	}
+
+	refreshConn(w, key.ConnID)
+	waitFor(t, w, func() bool { return !a.Loading[key] })
+	if _, ok := a.Columns[key]; ok {
+		t.Error("refresh kept the cached columns")
 	}
 }
